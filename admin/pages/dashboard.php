@@ -6,6 +6,9 @@ $total_payouts = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM pay
 $total_cashback_paid = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM bonus_ledger WHERE type='cashback_bonus'")->fetch_assoc()['total'];
 $total_advancement_credits = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_advancement_credits WHERE status<>'cancelled'")->fetch_assoc()['total'];
 $total_used_advancement_credits = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_advancement_credits WHERE status='used'")->fetch_assoc()['total'];
+$total_royalty_issued = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_royalty_ledger WHERE status='active'")->fetch_assoc()['total'];
+$total_royalty_released = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_royalty_ledger WHERE status='active' AND available_at <= NOW()")->fetch_assoc()['total'];
+$total_royalty_pending = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_royalty_ledger WHERE status='active' AND available_at > NOW()")->fetch_assoc()['total'];
 
 $total_package_sales = $conn->query("
     SELECT COALESCE(SUM(p.price), 0) AS total
@@ -81,6 +84,29 @@ $recent_members = $conn->query("
         <div class="admin-mini-card">
             <span>Used Advancement Credits</span>
             <h4>&#8369;<?php echo number_format((float)$total_used_advancement_credits, 2); ?></h4>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-4">
+        <div class="admin-mini-card">
+            <span>Total Royalty Issued</span>
+            <h4>&#8369;<?php echo number_format((float)$total_royalty_issued, 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="admin-mini-card">
+            <span>Total Royalty Released</span>
+            <h4>&#8369;<?php echo number_format((float)$total_royalty_released, 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="admin-mini-card">
+            <span>Total Royalty Pending</span>
+            <h4>&#8369;<?php echo number_format((float)$total_royalty_pending, 2); ?></h4>
         </div>
     </div>
 </div>

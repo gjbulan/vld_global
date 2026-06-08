@@ -94,11 +94,119 @@ function processCommunityBonus($conn, $member_id, $quantity) {
 }
 
 function getBalance($conn, $member_id) {
-    $stmt = $conn->prepare("SELECT SUM(amount) as total FROM bonus_ledger WHERE member_id=?");
+    $stmt = $conn->prepare("
+        SELECT COALESCE(SUM(
+            CASE
+                WHEN b.type='dominance_royalty_bonus' THEN
+                    CASE
+                        WHEN dr.id IS NOT NULL
+                         AND dr.status='active'
+                         AND dr.available_at <= NOW()
+                        THEN b.amount
+                        ELSE 0
+                    END
+                ELSE b.amount
+            END
+        ), 0) AS total
+        FROM bonus_ledger b
+        LEFT JOIN dominance_royalty_ledger dr ON dr.bonus_ledger_id = b.id
+        WHERE b.member_id=?
+    ");
     $stmt->bind_param("i", $member_id);
     $stmt->execute();
     $res = $stmt->get_result()->fetch_assoc();
     return isset($res['total']) ? (float)$res['total'] : 0;
+}
+
+function hasDominanceRoyaltySchedule($conn, $member_id) {
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM dominance_royalty_ledger
+        WHERE member_id=? AND status<>'cancelled'
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $member_id);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_assoc();
+}
+
+function createDominanceRoyaltySchedule($conn, $member_id) {
+    if (hasDominanceRoyaltySchedule($conn, $member_id)) {
+        return [
+            'created' => false,
+            'message' => 'Dominance Royalty schedule already exists.'
+        ];
+    }
+
+    $amount = 5000.00;
+    $bonus_type = "dominance_royalty_bonus";
+    $status = "active";
+
+    for ($month_no = 1; $month_no <= 6; $month_no++) {
+        $days = $month_no * 30;
+
+        $date_result = $conn->query("SELECT DATE_ADD(NOW(), INTERVAL " . (int)$days . " DAY) AS available_at");
+
+        if (!$date_result) {
+            throw new Exception("Unable to compute Dominance Royalty release date.");
+        }
+
+        $available_at = $date_result->fetch_assoc()['available_at'];
+        $description = "Dominance Royalty Bonus Month " . $month_no . " of 6. Available on " . $available_at;
+        $bonus_ledger_id = addBonus($conn, $member_id, $amount, $bonus_type, $description);
+
+        $stmt = $conn->prepare("
+            INSERT INTO dominance_royalty_ledger
+            (member_id, month_no, amount, bonus_type, bonus_ledger_id, available_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->bind_param(
+            "iidisss",
+            $member_id,
+            $month_no,
+            $amount,
+            $bonus_type,
+            $bonus_ledger_id,
+            $available_at,
+            $status
+        );
+
+        if (!$stmt->execute()) {
+            throw new Exception("Unable to insert Dominance Royalty schedule.");
+        }
+    }
+
+    return [
+        'created' => true,
+        'months' => 6,
+        'total' => 30000.00
+    ];
+}
+
+function getDominanceRoyaltySummary($conn, $member_id) {
+    $stmt = $conn->prepare("
+        SELECT
+            COALESCE(SUM(amount), 0) AS total_royalty,
+            COALESCE(SUM(CASE WHEN status='active' AND available_at <= NOW() THEN amount ELSE 0 END), 0) AS released_amount,
+            COALESCE(SUM(CASE WHEN status='active' AND available_at > NOW() THEN amount ELSE 0 END), 0) AS pending_amount,
+            SUM(CASE WHEN status='active' AND available_at <= NOW() THEN 1 ELSE 0 END) AS months_released,
+            SUM(CASE WHEN status='active' AND available_at > NOW() THEN 1 ELSE 0 END) AS months_remaining,
+            COUNT(*) AS total_months
+        FROM dominance_royalty_ledger
+        WHERE member_id=? AND status<>'cancelled'
+    ");
+    $stmt->bind_param("i", $member_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return [
+        'total_royalty' => isset($row['total_royalty']) ? (float)$row['total_royalty'] : 0,
+        'released_amount' => isset($row['released_amount']) ? (float)$row['released_amount'] : 0,
+        'pending_amount' => isset($row['pending_amount']) ? (float)$row['pending_amount'] : 0,
+        'months_released' => isset($row['months_released']) ? (int)$row['months_released'] : 0,
+        'months_remaining' => isset($row['months_remaining']) ? (int)$row['months_remaining'] : 0,
+        'total_months' => isset($row['total_months']) ? (int)$row['total_months'] : 0
+    ];
 }
 
 function getQualifiedCashbackDirects($conn, $member_id) {
@@ -374,7 +482,7 @@ function processCashbackAndAdvancement($conn, $member_id) {
     }
 
     if ($package_id === $package_ids['dominance'] && $directs['direct_dominance'] >= 5) {
-        return insertCashbackReward(
+        $cashback_result = insertCashbackReward(
             $conn,
             $member_id,
             $package_id,
@@ -383,6 +491,12 @@ function processCashbackAndAdvancement($conn, $member_id) {
             getPackagePrice($conn, $package_ids['dominance']),
             "Withdrawable Dominance cashback bonus"
         );
+
+        if ($cashback_result['awarded']) {
+            $cashback_result['royalty'] = createDominanceRoyaltySchedule($conn, $member_id);
+        }
+
+        return $cashback_result;
     }
 
     return [

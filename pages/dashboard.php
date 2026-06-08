@@ -18,6 +18,8 @@ $reward_amount = $cashback_status['reward_amount'];
 $cashback = $cashback_status['cashback'];
 $credit = $cashback_status['credit'];
 $has_unused_credit = $cashback_status['has_unused_credit'];
+$royalty_summary = getDominanceRoyaltySummary($conn, $member_id);
+$royalty_program_total = 30000.00;
 
 $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM members WHERE sponsor_id=?");
 $stmt->bind_param("i", $member_id);
@@ -78,7 +80,7 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
 <div class="row g-4 mt-1">
     <div class="col-md-3">
         <div class="stat-card ocean">
-            <span>Wallet Balance</span>
+            <span>Available Wallet Balance</span>
             <h3>&#8369;<?php echo number_format($balance, 2); ?></h3>
         </div>
     </div>
@@ -106,7 +108,7 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
 </div>
 
 <div class="row g-4 mt-2">
-    <div class="col-lg-4">
+    <div class="col-lg-3">
         <div class="premium-card h-100">
             <div class="card-title-row">
                 <h5>Cashback Status</h5>
@@ -121,7 +123,7 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
         </div>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-lg-3">
         <div class="premium-card h-100">
             <div class="card-title-row">
                 <h5>Dominance Credit</h5>
@@ -143,7 +145,36 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
         </div>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-lg-3">
+        <div class="premium-card h-100">
+            <div class="card-title-row">
+                <h5>Royalty Bonus</h5>
+                <span>Dominance Royalty</span>
+            </div>
+
+            <h3 class="mb-2">&#8369;<?php echo number_format($royalty_program_total, 2); ?></h3>
+            <table class="table premium-table mb-0">
+                <tr>
+                    <th>Released</th>
+                    <td>&#8369;<?php echo number_format($royalty_summary['released_amount'], 2); ?></td>
+                </tr>
+                <tr>
+                    <th>Pending</th>
+                    <td>&#8369;<?php echo number_format($royalty_summary['pending_amount'], 2); ?></td>
+                </tr>
+                <tr>
+                    <th>Months Released</th>
+                    <td><?php echo $royalty_summary['months_released']; ?>/6</td>
+                </tr>
+                <tr>
+                    <th>Months Remaining</th>
+                    <td><?php echo $royalty_summary['months_remaining']; ?>/6</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="col-lg-3">
         <div class="premium-card h-100">
             <div class="card-title-row">
                 <h5>Team Activity</h5>

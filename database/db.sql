@@ -87,6 +87,29 @@ CREATE TABLE `dominance_advancement_credits` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------
+-- Table structure for dominance_royalty_ledger
+-- ----------------------------
+DROP TABLE IF EXISTS `dominance_royalty_ledger`;
+CREATE TABLE `dominance_royalty_ledger` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `member_id` int(11) NOT NULL,
+  `month_no` int(11) NOT NULL,
+  `amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `bonus_type` varchar(50) NOT NULL DEFAULT 'dominance_royalty_bonus',
+  `bonus_ledger_id` int(11) DEFAULT NULL,
+  `available_at` datetime NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'active',
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_dominance_royalty_member_month` (`member_id`,`month_no`),
+  KEY `idx_dominance_royalty_member_id` (`member_id`),
+  KEY `idx_dominance_royalty_bonus_ledger_id` (`bonus_ledger_id`),
+  KEY `idx_dominance_royalty_available_at` (`available_at`),
+  KEY `idx_dominance_royalty_status` (`status`),
+  KEY `idx_dominance_royalty_bonus_type` (`bonus_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------
 -- Table structure for members
 -- ----------------------------
 DROP TABLE IF EXISTS `members`;

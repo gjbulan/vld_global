@@ -365,7 +365,10 @@ SQL dump containing the current core table structures.
 Current physical tables in the dump:
 
 - `bonus_ledger`
+- `cashback_ledger`
 - `community_bonus_ledger`
+- `dominance_advancement_credits`
+- `dominance_royalty_ledger`
 - `members`
 - `packages`
 - `package_codes`
@@ -562,6 +565,7 @@ Known admin page keys:
 - `product_purchases`
 - `bonuses`
 - `cashback`
+- `royalty`
 - `payouts`
 - `leadership_ranks`
 - `global_pool`
@@ -738,6 +742,7 @@ Current live database and `database/db.sql` contain these physical tables:
 - `cashback_ledger`
 - `community_bonus_ledger`
 - `dominance_advancement_credits`
+- `dominance_royalty_ledger`
 - `members`
 - `package_codes`
 - `packages`
@@ -1023,6 +1028,31 @@ Important rules:
 - Unique key on `member_id` prevents duplicate credits.
 - Credit is not withdrawable and must never be inserted into `bonus_ledger`.
 - Credit can only be consumed to upgrade package to Dominance.
+
+## `dominance_royalty_ledger`
+
+Stores the six-month Dominance Royalty Bonus schedule.
+
+Columns:
+
+- `id` int primary key auto increment
+- `member_id` int
+- `month_no` int
+- `amount` decimal(10,2)
+- `bonus_type` varchar(50)
+- `bonus_ledger_id` int nullable
+- `available_at` datetime
+- `status` varchar(20)
+- `created_at` datetime default current timestamp
+
+Important rules:
+
+- Unique key on `member_id` and `month_no` prevents duplicate royalty schedules.
+- Each schedule row links to a `bonus_ledger` row with type `dominance_royalty_bonus`.
+- Royalty rows are created immediately after Dominance qualification.
+- Released/available royalty is determined by `available_at <= NOW()`.
+- Pending royalty is determined by `available_at > NOW()`.
+- No cron job, admin release, or manual processing is required.
 
 ## `community_bonus_ledger`
 
@@ -1349,6 +1379,23 @@ Important rules:
 - The credit can only be used by `useDominanceAdvancementCreditForUpgrade()` to upgrade a member to Dominance.
 - A member must not receive both normal cashback and Dominance Advancement Credit.
 
+Dominance Royalty rule:
+
+- A Dominance member with 5 active Direct Dominance referrals receives immediate ₱50,885 cashback.
+- The same qualification creates a Dominance Royalty schedule.
+- Royalty amount is ₱5,000 per month for 6 months.
+- Total royalty schedule is ₱30,000.
+- `bonus_ledger.type` is `dominance_royalty_bonus`.
+- Month 1 releases 30 days after qualification.
+- Month 2 releases 60 days after qualification.
+- Month 3 releases 90 days after qualification.
+- Month 4 releases 120 days after qualification.
+- Month 5 releases 150 days after qualification.
+- Month 6 releases 180 days after qualification.
+- The rows are inserted immediately into `dominance_royalty_ledger` and `bonus_ledger`.
+- `getBalance()` only counts royalty rows whose `available_at <= NOW()`.
+- Pending royalty remains outside withdrawable balance until its `available_at` date.
+
 Reusable functions:
 
 - `processCashbackAndAdvancement($conn, $member_id)`
@@ -1357,6 +1404,9 @@ Reusable functions:
 - `hasDominanceAdvancementCredit($conn, $member_id)`
 - `processDominanceAdvancementCredit($conn, $member_id)`
 - `useDominanceAdvancementCreditForUpgrade($conn, $member_id)`
+- `createDominanceRoyaltySchedule($conn, $member_id)`
+- `getDominanceRoyaltySummary($conn, $member_id)`
+- `hasDominanceRoyaltySchedule($conn, $member_id)`
 
 ## Direct Referral Bonus
 
@@ -1590,6 +1640,17 @@ description = Payout request
 - 2% of total package sales
 - Qualification requires 5 direct Legacy/Dominance members
 - Current implementation is estimated/display-only
+
+## Dominance Royalty Bonus
+
+- Qualification requires Dominance package and 5 active Direct Dominance members.
+- Immediate cashback is ₱50,885 through `cashback_bonus`.
+- Royalty is ₱5,000 monthly for 6 months.
+- Total royalty is ₱30,000.
+- Royalty rows are created immediately.
+- Released royalty uses `available_at <= NOW()`.
+- Pending royalty uses `available_at > NOW()`.
+- No cron job, admin release, or manual processing is used.
 
 ## Leadership Ranking
 

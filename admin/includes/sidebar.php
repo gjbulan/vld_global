@@ -16,6 +16,7 @@
         <a href="index.php?page=product_purchases">Product Purchases</a>
         <a href="index.php?page=bonuses">Bonuses</a>
         <a href="index.php?page=cashback">Cashback &amp; Advancement</a>
+        <a href="index.php?page=royalty">Dominance Royalty</a>
         <a href="index.php?page=payouts">Payouts</a>
         <a href="index.php?page=leadership_ranks">Leadership Ranks</a>
         <a href="index.php?page=global_pool">Global Pool</a>
