@@ -1,0 +1,1 @@
+ALTER TABLE members ADD COLUMN contact_no VARCHAR(30) NOT NULL AFTER email;

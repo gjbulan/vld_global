@@ -1,0 +1,24 @@
+
+<?php
+$page_key = $_GET['page'] ?? 'dashboard';
+
+switch ($page_key) {
+    case 'dashboard': $page = 'pages/dashboard.php'; break;
+    case 'members': $page = 'pages/members.php'; break;
+    case 'packages': $page = 'pages/packages.php'; break;
+    case 'products': $page = 'pages/products.php'; break;
+    case 'product_purchases': $page = 'pages/product_purchases.php'; break;
+    case 'bonuses': $page = 'pages/bonuses.php'; break;
+    case 'cashback': $page = 'pages/cashback.php'; break;
+    case 'payouts': $page = 'pages/payouts.php'; break;
+    case 'leadership_ranks': $page = 'pages/leadership_ranks.php'; break;
+    case 'global_pool': $page = 'pages/global_pool.php'; break;
+    case 'reports': $page = 'pages/reports.php'; break;
+    case 'settings': $page = 'pages/settings.php'; break;
+    case 'package_codes': $page = 'pages/package_codes.php'; break;
+    case 'product_codes': $page = 'pages/product_codes.php'; break;
+    default: $page = 'pages/dashboard.php';
+}
+
+include 'main.php';
+?>

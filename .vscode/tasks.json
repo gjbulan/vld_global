@@ -1,0 +1,13 @@
+{ 
+  "version": "2.0.0", 
+  "tasks": [ 
+    { 
+      "label": "(Apache/XAMPP)", 
+      "type": "shell", 
+      "command": "cmd", 
+      "args": ["/c", "start", "http://localhost:8080/vld_global/"], 
+      "problemMatcher": [] 
+    } 
+  ] 
+} 
+ 
