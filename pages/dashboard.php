@@ -1,5 +1,6 @@
 <?php
 $member_id = $_SESSION['member_id'];
+$package_ids = getVldPackageIds();
 
 $stmt = $conn->prepare("
     SELECT m.*, p.name AS package_name, p.price
@@ -11,6 +12,10 @@ $stmt->bind_param("i", $member_id);
 $stmt->execute();
 $member = $stmt->get_result()->fetch_assoc();
 
+$package_id = $member ? (int)$member['package_id'] : 0;
+$is_dominance_member = $package_id === $package_ids['dominance'];
+$is_upgrade_member = $package_id === $package_ids['vision'] || $package_id === $package_ids['legacy'];
+
 $balance = getBalance($conn, $member_id);
 $cashback_status = getCashbackStatus($conn, $member_id);
 $qualified_direct_count = $cashback_status['qualified_direct_count'];
@@ -19,7 +24,7 @@ $cashback = $cashback_status['cashback'];
 $credit = $cashback_status['credit'];
 $has_unused_credit = $cashback_status['has_unused_credit'];
 $royalty_summary = getDominanceRoyaltySummary($conn, $member_id);
-$royalty_program_total = 30000.00;
+$next_release_date = $royalty_summary['next_release_date'] ? date("Y-m-d", strtotime($royalty_summary['next_release_date'])) : "No pending release";
 
 $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM members WHERE sponsor_id=?");
 $stmt->bind_param("i", $member_id);
@@ -30,6 +35,11 @@ $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM members WHERE sponsor_id=?
 $stmt->bind_param("i", $member_id);
 $stmt->execute();
 $active_directs = (int)$stmt->get_result()->fetch_assoc()['total'];
+
+$stmt = $conn->prepare("SELECT COUNT(*) AS total FROM members WHERE sponsor_id=? AND status='active' AND package_id=?");
+$stmt->bind_param("ii", $member_id, $package_ids['dominance']);
+$stmt->execute();
+$active_direct_dominance = (int)$stmt->get_result()->fetch_assoc()['total'];
 
 $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM product_purchases WHERE member_id=?");
 $stmt->bind_param("i", $member_id);
@@ -64,7 +74,11 @@ if ($credit) {
 }
 
 $cashback_status_label = $cashback ? "Cashback earned" : $cashback_status['qualification_label'];
-$ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . "/register.php?ref=" . $member['username'];
+$cashback_direct_label = $is_dominance_member ? "Active Direct Dominance" : "Cashback Qualified Directs";
+$cashback_direct_value = $is_dominance_member ? $active_direct_dominance : $qualified_direct_count;
+$http_host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$script_path = $_SERVER['PHP_SELF'] ?? '/vld_global/index.php';
+$ref_link = "http://" . $http_host . dirname($script_path) . "/register.php?ref=" . $member['username'];
 ?>
 
 <div class="premium-hero">
@@ -87,15 +101,21 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
 
     <div class="col-md-3">
         <div class="stat-card gold">
-            <span>Active Directs</span>
-            <h3><?php echo $active_directs; ?></h3>
+            <span><?php echo htmlspecialchars($cashback_direct_label); ?></span>
+            <h3><?php echo $cashback_direct_value; ?>/5</h3>
         </div>
     </div>
 
     <div class="col-md-3">
         <div class="stat-card teal">
-            <span>Cashback Qualified Directs</span>
-            <h3><?php echo $qualified_direct_count; ?>/5</h3>
+            <span><?php echo $is_dominance_member ? 'Available Royalty' : 'Product Encodes'; ?></span>
+            <h3>
+                <?php if ($is_dominance_member): ?>
+                    &#8369;<?php echo number_format($royalty_summary['released_amount'], 2); ?>
+                <?php else: ?>
+                    <?php echo $purchases; ?>
+                <?php endif; ?>
+            </h3>
         </div>
     </div>
 
@@ -108,7 +128,7 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
 </div>
 
 <div class="row g-4 mt-2">
-    <div class="col-lg-3">
+    <div class="col-lg-4">
         <div class="premium-card h-100">
             <div class="card-title-row">
                 <h5>Cashback Status</h5>
@@ -123,80 +143,113 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
         </div>
     </div>
 
-    <div class="col-lg-3">
-        <div class="premium-card h-100">
-            <div class="card-title-row">
-                <h5>Dominance Credit</h5>
-                <span>Non-withdrawable Upgrade Credit</span>
+    <?php if ($is_dominance_member): ?>
+        <div class="col-lg-4">
+            <div class="premium-card h-100">
+                <div class="card-title-row">
+                    <h5>Dominance Royalty Bonus</h5>
+                    <span><?php echo htmlspecialchars($royalty_summary['royalty_status']); ?></span>
+                </div>
+
+                <table class="table premium-table mb-0">
+                    <tr>
+                        <th>Total Royalty Scheduled</th>
+                        <td>&#8369;<?php echo number_format($royalty_summary['total_royalty'], 2); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Available Royalty</th>
+                        <td>&#8369;<?php echo number_format($royalty_summary['released_amount'], 2); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Pending Royalty</th>
+                        <td>&#8369;<?php echo number_format($royalty_summary['pending_amount'], 2); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Next Release Date</th>
+                        <td><?php echo htmlspecialchars($next_release_date); ?></td>
+                    </tr>
+                </table>
             </div>
-
-            <h3 class="mb-2">&#8369;<?php echo number_format($credit_amount, 2); ?></h3>
-            <p class="text-muted mb-3"><?php echo htmlspecialchars($credit_status_label); ?></p>
-
-            <?php if ($has_unused_credit): ?>
-                <a href="index.php?page=dominance_upgrade" class="btn copy-btn w-100">
-                    Upgrade to Dominance
-                </a>
-            <?php else: ?>
-                <small class="text-muted">
-                    Credit is issued only for qualified Vision or Legacy members with 5 active Direct Dominance referrals.
-                </small>
-            <?php endif; ?>
         </div>
-    </div>
 
-    <div class="col-lg-3">
-        <div class="premium-card h-100">
-            <div class="card-title-row">
-                <h5>Royalty Bonus</h5>
-                <span>Dominance Royalty</span>
+        <div class="col-lg-4">
+            <div class="premium-card h-100">
+                <div class="card-title-row">
+                    <h5>Dominance Qualification</h5>
+                    <span>Royalty Status</span>
+                </div>
+
+                <table class="table premium-table mb-0">
+                    <tr>
+                        <th>Active Direct Dominance Count</th>
+                        <td><?php echo $active_direct_dominance; ?>/5</td>
+                    </tr>
+                    <tr>
+                        <th>Royalty Status</th>
+                        <td><?php echo htmlspecialchars($royalty_summary['royalty_status']); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Months Released</th>
+                        <td><?php echo $royalty_summary['months_released']; ?>/6</td>
+                    </tr>
+                    <tr>
+                        <th>Months Remaining</th>
+                        <td><?php echo $royalty_summary['months_remaining']; ?>/6</td>
+                    </tr>
+                </table>
             </div>
-
-            <h3 class="mb-2">&#8369;<?php echo number_format($royalty_program_total, 2); ?></h3>
-            <table class="table premium-table mb-0">
-                <tr>
-                    <th>Released</th>
-                    <td>&#8369;<?php echo number_format($royalty_summary['released_amount'], 2); ?></td>
-                </tr>
-                <tr>
-                    <th>Pending</th>
-                    <td>&#8369;<?php echo number_format($royalty_summary['pending_amount'], 2); ?></td>
-                </tr>
-                <tr>
-                    <th>Months Released</th>
-                    <td><?php echo $royalty_summary['months_released']; ?>/6</td>
-                </tr>
-                <tr>
-                    <th>Months Remaining</th>
-                    <td><?php echo $royalty_summary['months_remaining']; ?>/6</td>
-                </tr>
-            </table>
         </div>
-    </div>
+    <?php else: ?>
+        <div class="col-lg-4">
+            <div class="premium-card h-100">
+                <div class="card-title-row">
+                    <h5>Dominance Credit</h5>
+                    <span>Non-withdrawable Upgrade Credit</span>
+                </div>
 
-    <div class="col-lg-3">
-        <div class="premium-card h-100">
-            <div class="card-title-row">
-                <h5>Team Activity</h5>
-                <span>Earnings Cards</span>
+                <h3 class="mb-2">&#8369;<?php echo number_format($credit_amount, 2); ?></h3>
+                <p class="text-muted mb-3"><?php echo htmlspecialchars($credit_status_label); ?></p>
+
+                <?php if ($is_upgrade_member && $has_unused_credit): ?>
+                    <a href="index.php?page=dominance_upgrade" class="btn copy-btn w-100">
+                        Upgrade to Dominance
+                    </a>
+                <?php else: ?>
+                    <small class="text-muted">
+                        Credit is issued only for qualified Vision or Legacy members with 5 active Direct Dominance referrals.
+                    </small>
+                <?php endif; ?>
             </div>
-
-            <table class="table premium-table mb-0">
-                <tr>
-                    <th>Total Directs</th>
-                    <td><?php echo $directs; ?></td>
-                </tr>
-                <tr>
-                    <th>Active Directs</th>
-                    <td><?php echo $active_directs; ?></td>
-                </tr>
-                <tr>
-                    <th>Product Encodes</th>
-                    <td><?php echo $purchases; ?></td>
-                </tr>
-            </table>
         </div>
-    </div>
+
+        <div class="col-lg-4">
+            <div class="premium-card h-100">
+                <div class="card-title-row">
+                    <h5>Team Activity</h5>
+                    <span>Earnings Cards</span>
+                </div>
+
+                <table class="table premium-table mb-0">
+                    <tr>
+                        <th>Total Directs</th>
+                        <td><?php echo $directs; ?></td>
+                    </tr>
+                    <tr>
+                        <th>Active Directs</th>
+                        <td><?php echo $active_directs; ?></td>
+                    </tr>
+                    <tr>
+                        <th>Active Direct Dominance</th>
+                        <td><?php echo $active_direct_dominance; ?></td>
+                    </tr>
+                    <tr>
+                        <th>Product Encodes</th>
+                        <td><?php echo $purchases; ?></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    <?php endif; ?>
 </div>
 
 <div class="row g-4 mt-2">
@@ -290,10 +343,17 @@ $ref_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 
                 <th>Cashback Status</th>
                 <td><?php echo htmlspecialchars($cashback_status_label); ?></td>
             </tr>
-            <tr>
-                <th>Dominance Credit</th>
-                <td><?php echo htmlspecialchars($credit_status_label); ?></td>
-            </tr>
+            <?php if ($is_dominance_member): ?>
+                <tr>
+                    <th>Royalty Status</th>
+                    <td><?php echo htmlspecialchars($royalty_summary['royalty_status']); ?></td>
+                </tr>
+            <?php else: ?>
+                <tr>
+                    <th>Dominance Credit</th>
+                    <td><?php echo htmlspecialchars($credit_status_label); ?></td>
+                </tr>
+            <?php endif; ?>
         </table>
     </div>
 </div>

@@ -292,6 +292,10 @@ Includes `config.php` and defines shared member/bonus helpers:
 - `addBonus($conn, $member_id, $amount, $type, $desc)`
 - `processCommunityBonus($conn, $member_id, $quantity)`
 - `getBalance($conn, $member_id)`
+- `getCashbackStatus($conn, $member_id)`
+- `getDominanceRoyaltySummary($conn, $member_id)`
+- `processCashbackAndAdvancement($conn, $member_id)`
+- `useDominanceAdvancementCreditForUpgrade($conn, $member_id)`
 
 This file is the main reusable business logic location.
 
@@ -299,10 +303,11 @@ This file is the main reusable business logic location.
 
 Member portal router. Reads `$_GET['page']`, maps it to a file under `pages/`, then includes `main.php`.
 
+Old `index.php?page=members` links redirect to `index.php?page=directs`.
+
 Known member page keys:
 
 - `dashboard`
-- `members`
 - `genealogy`
 - `directs`
 - `generation_bonus`
@@ -409,6 +414,13 @@ Opens the HTML document, sets viewport, loads Bootstrap CDN, and loads `assets/s
 
 Member sidebar navigation. Starts the `.app-shell` and `.premium-sidebar` layout.
 
+Current member navigation:
+
+- Does not show the deprecated Members menu item.
+- Uses Direct Referrals as the official direct-member page.
+- Shows Dominance Upgrade only to Vision and Legacy members.
+- Hides Dominance Upgrade completely for Dominance members.
+
 ## `includes/topbar.php`
 
 Member topbar with hamburger button and logout button.
@@ -433,6 +445,10 @@ Shows:
 - Referral link
 - Profile summary
 - Account information
+- Cashback status
+- Dominance Credit card for Vision/Legacy members
+- Dominance Royalty card for Dominance members
+- Active Direct Dominance count for Dominance members
 
 Referral link format:
 
@@ -442,11 +458,26 @@ http://{host}/vld_global/register.php?ref={username}
 
 ## `pages/members.php`
 
-Shows direct members where `members.sponsor_id` equals the current logged-in member ID.
+Deprecated as a member route. The member router redirects old `index.php?page=members` links to `index.php?page=directs`.
 
 ## `pages/directs.php`
 
-Shows direct referral list with package and package value.
+Official Direct Referrals page.
+
+Shows direct referrals where `members.sponsor_id` equals the current logged-in member ID.
+
+Features:
+
+- Search by member code, username, full name, contact number, package, or status.
+- Pagination.
+- Bootstrap 5 responsive table.
+- Member code.
+- Username.
+- Full name.
+- Contact number.
+- Package.
+- Status.
+- Date joined.
 
 ## `pages/genealogy.php`
 
@@ -517,7 +548,7 @@ This page currently displays calculations only. It does not insert global pool p
 
 ## `pages/dominance_upgrade.php`
 
-Allows qualified Vision or Legacy members to consume an unused Dominance Advancement Credit.
+Allows qualified Vision or Legacy members to consume an unused Dominance Advancement Credit. This page is hidden from Dominance members and manually opened Dominance links redirect to the dashboard.
 
 Flow:
 
@@ -1916,6 +1947,7 @@ Important note:
 - `settings` table does not currently exist.
 - Global pool is display-only.
 - Leadership rank logic only computes L1.
+- Chairman Bonus qualification logic has not been implemented yet.
 - Payouts have no status/approval workflow.
 - Some multi-step write flows do not yet use transactions.
 - Duplicate bonus prevention is not fully enforced by unique database constraints.

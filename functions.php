@@ -191,6 +191,7 @@ function getDominanceRoyaltySummary($conn, $member_id) {
             COALESCE(SUM(CASE WHEN status='active' AND available_at > NOW() THEN amount ELSE 0 END), 0) AS pending_amount,
             SUM(CASE WHEN status='active' AND available_at <= NOW() THEN 1 ELSE 0 END) AS months_released,
             SUM(CASE WHEN status='active' AND available_at > NOW() THEN 1 ELSE 0 END) AS months_remaining,
+            MIN(CASE WHEN status='active' AND available_at > NOW() THEN available_at ELSE NULL END) AS next_release_date,
             COUNT(*) AS total_months
         FROM dominance_royalty_ledger
         WHERE member_id=? AND status<>'cancelled'
@@ -199,13 +200,25 @@ function getDominanceRoyaltySummary($conn, $member_id) {
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
 
+    $total_months = isset($row['total_months']) ? (int)$row['total_months'] : 0;
+    $months_remaining = isset($row['months_remaining']) ? (int)$row['months_remaining'] : 0;
+    $royalty_status = "Not qualified yet";
+
+    if ($total_months > 0 && $months_remaining > 0) {
+        $royalty_status = "Royalty schedule active";
+    } elseif ($total_months > 0) {
+        $royalty_status = "Royalty fully released";
+    }
+
     return [
         'total_royalty' => isset($row['total_royalty']) ? (float)$row['total_royalty'] : 0,
         'released_amount' => isset($row['released_amount']) ? (float)$row['released_amount'] : 0,
         'pending_amount' => isset($row['pending_amount']) ? (float)$row['pending_amount'] : 0,
         'months_released' => isset($row['months_released']) ? (int)$row['months_released'] : 0,
-        'months_remaining' => isset($row['months_remaining']) ? (int)$row['months_remaining'] : 0,
-        'total_months' => isset($row['total_months']) ? (int)$row['total_months'] : 0
+        'months_remaining' => $months_remaining,
+        'next_release_date' => $row['next_release_date'] ?? null,
+        'total_months' => $total_months,
+        'royalty_status' => $royalty_status
     ];
 }
 

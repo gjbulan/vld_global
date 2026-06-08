@@ -2,16 +2,7 @@
 $member_id = $_SESSION['member_id'];
 $success = "";
 $error = "";
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $result = useDominanceAdvancementCreditForUpgrade($conn, $member_id);
-
-    if ($result['success']) {
-        $success = $result['message'];
-    } else {
-        $error = $result['message'];
-    }
-}
+$package_ids = getVldPackageIds();
 
 $stmt = $conn->prepare("
     SELECT m.*, p.name AS package_name, p.price
@@ -22,6 +13,25 @@ $stmt = $conn->prepare("
 $stmt->bind_param("i", $member_id);
 $stmt->execute();
 $member = $stmt->get_result()->fetch_assoc();
+
+if (
+    !$member ||
+    ((int)$member['package_id'] !== $package_ids['vision'] && (int)$member['package_id'] !== $package_ids['legacy'])
+) {
+    echo '<script>window.location.replace("index.php?page=dashboard");</script>';
+    return;
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $result = useDominanceAdvancementCreditForUpgrade($conn, $member_id);
+
+    if ($result['success']) {
+        echo '<script>window.location.replace("index.php?page=dashboard");</script>';
+        return;
+    }
+
+    $error = $result['message'];
+}
 
 $cashback_status = getCashbackStatus($conn, $member_id);
 $credit = $cashback_status['credit'];
