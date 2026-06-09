@@ -3,6 +3,8 @@ $total_members = $conn->query("SELECT COUNT(*) AS total FROM members")->fetch_as
 $total_purchases = $conn->query("SELECT COUNT(*) AS total FROM product_purchases")->fetch_assoc()['total'];
 $total_bonuses = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM bonus_ledger WHERE amount > 0")->fetch_assoc()['total'];
 $total_payouts = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM payouts")->fetch_assoc()['total'];
+$total_generation_bonus = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM bonus_ledger WHERE type='generation_bonus'")->fetch_assoc()['total'];
+$total_chairman_bonus = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM bonus_ledger WHERE type='chairman_bonus'")->fetch_assoc()['total'];
 $total_cashback_paid = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM bonus_ledger WHERE type='cashback_bonus'")->fetch_assoc()['total'];
 $total_advancement_credits = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_advancement_credits WHERE status<>'cancelled'")->fetch_assoc()['total'];
 $total_used_advancement_credits = $conn->query("SELECT COALESCE(SUM(amount), 0) AS total FROM dominance_advancement_credits WHERE status='used'")->fetch_assoc()['total'];
@@ -61,6 +63,22 @@ $recent_members = $conn->query("
         <div class="admin-stat-card red">
             <span>Total Payouts</span>
             <h3>&#8369;<?php echo number_format((float)$total_payouts, 2); ?></h3>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6">
+        <div class="admin-mini-card">
+            <span>Total Generation Bonus</span>
+            <h4>&#8369;<?php echo number_format((float)$total_generation_bonus, 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="admin-mini-card">
+            <span>Total Chairman Bonus</span>
+            <h4>&#8369;<?php echo number_format((float)$total_chairman_bonus, 2); ?></h4>
         </div>
     </div>
 </div>

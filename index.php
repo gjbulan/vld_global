@@ -13,6 +13,7 @@ switch ($page_key) {
     case 'genealogy': $page = 'pages/genealogy.php'; break;
     case 'directs': $page = 'pages/directs.php'; break;
     case 'generation_bonus': $page = 'pages/generation_bonus.php'; break;
+    case 'chairman_bonus': $page = 'pages/chairman_bonus.php'; break;
     case 'community_bonus': $page = 'pages/community_bonus.php'; break;
     case 'encode_product': $page = 'pages/encode_product.php'; break;
     case 'leadership_ranking': $page = 'pages/leadership_ranking.php'; break;

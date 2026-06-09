@@ -49,6 +49,29 @@ if ($bonus_params) {
 $bonus_stmt->execute();
 $bonus_by_type = $bonus_stmt->get_result();
 
+$bonus_totals_sql = "
+    SELECT
+        COALESCE(SUM(CASE WHEN type='generation_bonus' THEN amount ELSE 0 END), 0) AS generation_bonus_total,
+        COALESCE(SUM(CASE WHEN type='chairman_bonus' THEN amount ELSE 0 END), 0) AS chairman_bonus_total
+    FROM bonus_ledger
+    $bonus_where
+";
+$bonus_totals_stmt = $conn->prepare($bonus_totals_sql);
+
+if ($bonus_params) {
+    $bind_values = [];
+    $bind_values[] = $bonus_param_types;
+
+    foreach ($bonus_params as $key => $value) {
+        $bind_values[] = &$bonus_params[$key];
+    }
+
+    call_user_func_array([$bonus_totals_stmt, 'bind_param'], $bind_values);
+}
+
+$bonus_totals_stmt->execute();
+$bonus_totals = $bonus_totals_stmt->get_result()->fetch_assoc();
+
 $purchases_by_product = $conn->query("
     SELECT p.name, COALESCE(SUM(pp.quantity), 0) AS total_quantity
     FROM products p
@@ -93,6 +116,22 @@ $advancement_summary = $conn->query("
                 <a href="index.php?page=reports" class="btn btn-outline-secondary w-100">Reset</a>
             </div>
         </form>
+    </div>
+</div>
+
+<div class="row mt-3 g-4">
+    <div class="col-lg-6">
+        <div class="admin-mini-card">
+            <span>Generation Bonus Total</span>
+            <h4>&#8369;<?php echo number_format((float)$bonus_totals['generation_bonus_total'], 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="admin-mini-card">
+            <span>Chairman Bonus Total</span>
+            <h4>&#8369;<?php echo number_format((float)$bonus_totals['chairman_bonus_total'], 2); ?></h4>
+        </div>
     </div>
 </div>
 

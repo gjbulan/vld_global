@@ -69,6 +69,26 @@ CREATE TABLE `community_bonus_ledger` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------
+-- Table structure for chairman_bonus_ledger
+-- ----------------------------
+DROP TABLE IF EXISTS `chairman_bonus_ledger`;
+CREATE TABLE `chairman_bonus_ledger` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `member_id` int(11) NOT NULL,
+  `from_member_id` int(11) NOT NULL,
+  `source_bonus_ledger_id` int(11) NOT NULL,
+  `source_generation_bonus_amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `percentage` decimal(5,2) NOT NULL DEFAULT 0.02,
+  `amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_chairman_source_bonus` (`source_bonus_ledger_id`),
+  KEY `idx_chairman_member_id` (`member_id`),
+  KEY `idx_chairman_from_member_id` (`from_member_id`),
+  KEY `idx_chairman_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------
 -- Table structure for dominance_advancement_credits
 -- ----------------------------
 DROP TABLE IF EXISTS `dominance_advancement_credits`;

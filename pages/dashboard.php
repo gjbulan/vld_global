@@ -56,6 +56,28 @@ $stmt->execute();
 $withdrawable_cashback = (float)$stmt->get_result()->fetch_assoc()['total'];
 
 $stmt = $conn->prepare("
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM bonus_ledger
+    WHERE member_id=? AND type='generation_bonus'
+");
+$stmt->bind_param("i", $member_id);
+$stmt->execute();
+$generation_bonus_total = (float)$stmt->get_result()->fetch_assoc()['total'];
+
+$stmt = $conn->prepare("
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM bonus_ledger
+    WHERE member_id=? AND type='chairman_bonus'
+");
+$stmt->bind_param("i", $member_id);
+$stmt->execute();
+$chairman_bonus_total = (float)$stmt->get_result()->fetch_assoc()['total'];
+
+$is_chairman_qualified = isChairmanQualified($conn, $member_id);
+$chairman_status_label = $is_chairman_qualified ? "Qualified" : "Not qualified";
+$show_chairman_bonus_total = $chairman_bonus_total > 0 || $is_chairman_qualified;
+
+$stmt = $conn->prepare("
     SELECT amount, type, description, created_at
     FROM bonus_ledger
     WHERE member_id=?
@@ -125,6 +147,59 @@ $ref_link = "http://" . $http_host . dirname($script_path) . "/register.php?ref=
             <h3><?php echo htmlspecialchars($member['member_code']); ?></h3>
         </div>
     </div>
+</div>
+
+<div class="row g-4 mt-2">
+    <div class="col-lg-4">
+        <div class="premium-card h-100">
+            <div class="card-title-row">
+                <h5>Generation Bonus Total</h5>
+                <span>Level 2 to Level 8</span>
+            </div>
+
+            <h3 class="mb-0">&#8369;<?php echo number_format($generation_bonus_total, 2); ?></h3>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="premium-card h-100">
+            <div class="card-title-row">
+                <h5>Chairman Qualification</h5>
+                <span><?php echo htmlspecialchars($chairman_status_label); ?></span>
+            </div>
+
+            <table class="table premium-table mb-0">
+                <tr>
+                    <th>Required Package</th>
+                    <td>Dominance</td>
+                </tr>
+                <tr>
+                    <th>Active Direct Dominance</th>
+                    <td><?php echo $active_direct_dominance; ?>/5</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td><?php echo htmlspecialchars($chairman_status_label); ?></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <?php if ($show_chairman_bonus_total): ?>
+        <div class="col-lg-4">
+            <div class="premium-card h-100">
+                <div class="card-title-row">
+                    <h5>Chairman Bonus Total</h5>
+                    <span>2% Override</span>
+                </div>
+
+                <h3 class="mb-2">&#8369;<?php echo number_format($chairman_bonus_total, 2); ?></h3>
+                <small class="text-muted">
+                    Earned from generation bonuses received by your direct referrals.
+                </small>
+            </div>
+        </div>
+    <?php endif; ?>
 </div>
 
 <div class="row g-4 mt-2">

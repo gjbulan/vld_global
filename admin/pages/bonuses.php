@@ -10,6 +10,15 @@ $type_options = $conn->query("
     WHERE type IS NOT NULL AND type<>''
     ORDER BY type ASC
 ");
+$type_values = ['chairman_bonus'];
+
+while ($type_row = $type_options->fetch_assoc()) {
+    if (!in_array($type_row['type'], $type_values, true)) {
+        $type_values[] = $type_row['type'];
+    }
+}
+
+sort($type_values);
 
 $conditions = [];
 $params = [];
@@ -92,11 +101,11 @@ $result = $stmt->get_result();
                 <label class="form-label">Bonus Type</label>
                 <select name="type" class="form-control">
                     <option value="">All Types</option>
-                    <?php while ($type_row = $type_options->fetch_assoc()): ?>
-                        <option value="<?php echo htmlspecialchars($type_row['type']); ?>" <?php echo $type_filter === $type_row['type'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($type_row['type']); ?>
+                    <?php foreach ($type_values as $type_value): ?>
+                        <option value="<?php echo htmlspecialchars($type_value); ?>" <?php echo $type_filter === $type_value ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($type_value); ?>
                         </option>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </select>
             </div>
 

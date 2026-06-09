@@ -20,6 +20,7 @@ $show_dominance_upgrade = $sidebar_package_id === $sidebar_package_ids['vision']
         <a href="index.php?page=directs">Direct Referrals</a>
         <a href="index.php?page=community_bonus">Community Bonus</a>
         <a href="index.php?page=generation_bonus">Generation Bonus</a>
+        <a href="index.php?page=chairman_bonus">Chairman Bonus</a>
         <a href="index.php?page=encode_product">Encode Product</a>
         <a href="index.php?page=leadership_ranking">Leadership Ranking</a>
         <a href="index.php?page=global_pool">Global Pool</a>

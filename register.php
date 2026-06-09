@@ -243,11 +243,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$sponsor) {
             $error = "Sponsor username does not exist.";
         } else {
-            $conn->begin_transaction();
-
             try {
+                ensureChairmanBonusLedgerTable($conn);
+                $conn->begin_transaction();
+
                 $stmt = $conn->prepare("
-                    SELECT pc.*, p.name AS package_name, p.direct_bonus, p.generation_bonus
+                    SELECT pc.*, p.name AS package_name, p.direct_bonus
                     FROM package_codes pc
                     JOIN packages p ON pc.package_id = p.id
                     WHERE pc.code=? AND pc.status='unused'
@@ -310,24 +311,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "Direct referral bonus from " . $username
                 );
 
-                $uplines = getUpline($conn, $sponsor_id, 4);
-                $generation_level = 2;
-
-                foreach ($uplines as $upline_id) {
-                    if ($generation_level > 5) {
-                        break;
-                    }
-
-                    addBonus(
-                        $conn,
-                        $upline_id,
-                        $code_data['generation_bonus'],
-                        "generation_bonus",
-                        "Generation level " . $generation_level . " bonus from " . $username
-                    );
-
-                    $generation_level++;
-                }
+                processGenerationBonuses($conn, $new_member_id, $sponsor_id, $package_id);
 
                 processCashbackAndAdvancement($conn, $sponsor_id);
 

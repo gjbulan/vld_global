@@ -29,7 +29,8 @@ The system is built around these core workflows:
 The application currently supports these compensation concepts:
 
 - Direct referral bonus from immediate sponsored member registration.
-- Generation bonus for levels 2 through 5 above the new member's sponsor.
+- Generation bonus for levels 2 through 8 above the new member's sponsor using a hybrid capped package matrix.
+- Chairman Bonus override from generation bonuses earned by qualified Dominance members' direct referrals.
 - Community bonus from product code encoding, paid up to 8 sponsor-upline levels.
 - Leadership ranking display based on direct and rank hierarchy requirements.
 - Global pool display calculated from total package sales.
@@ -288,8 +289,14 @@ Includes `config.php` and defines shared member/bonus helpers:
 
 - `generateMemberCode($conn)`
 - `getMemberByUsername($conn, $username)`
+- `getPackageGenerationValue($package_id)`
+- `calculateGenerationBonusAmount($upline_package_id, $downline_package_id)`
 - `getUpline($conn, $member_id, $levels = 8)`
 - `addBonus($conn, $member_id, $amount, $type, $desc)`
+- `ensureChairmanBonusLedgerTable($conn)`
+- `isChairmanQualified($conn, $member_id)`
+- `processChairmanBonus($conn, $generation_receiver_id, $source_bonus_ledger_id, $generation_bonus_amount)`
+- `processGenerationBonuses($conn, $new_member_id, $sponsor_id, $new_member_package_id)`
 - `processCommunityBonus($conn, $member_id, $quantity)`
 - `getBalance($conn, $member_id)`
 - `getCashbackStatus($conn, $member_id)`
@@ -311,6 +318,7 @@ Known member page keys:
 - `genealogy`
 - `directs`
 - `generation_bonus`
+- `chairman_bonus`
 - `community_bonus`
 - `encode_product`
 - `leadership_ranking`
@@ -349,6 +357,7 @@ Member registration and package activation page. Handles:
 - Package code usage update
 - Direct referral bonus
 - Generation bonus
+- Chairman Bonus
 
 ## `logout.php`
 
@@ -371,6 +380,7 @@ Current physical tables in the dump:
 
 - `bonus_ledger`
 - `cashback_ledger`
+- `chairman_bonus_ledger`
 - `community_bonus_ledger`
 - `dominance_advancement_credits`
 - `dominance_royalty_ledger`
@@ -418,6 +428,7 @@ Current member navigation:
 
 - Does not show the deprecated Members menu item.
 - Uses Direct Referrals as the official direct-member page.
+- Includes Chairman Bonus for member Chairman override earnings.
 - Shows Dominance Upgrade only to Vision and Legacy members.
 - Hides Dominance Upgrade completely for Dominance members.
 
@@ -446,6 +457,9 @@ Shows:
 - Profile summary
 - Account information
 - Cashback status
+- Generation Bonus total
+- Chairman Bonus total when earned or qualified
+- Chairman Qualification status
 - Dominance Credit card for Vision/Legacy members
 - Dominance Royalty card for Dominance members
 - Active Direct Dominance count for Dominance members
@@ -496,6 +510,36 @@ Shows `bonus_ledger` rows for the current member where:
 ```sql
 type = 'generation_bonus'
 ```
+
+Current display:
+
+- Level.
+- Source member.
+- Source package when available in the ledger description.
+- Amount.
+- Description.
+- Date.
+
+New generation bonus ledger descriptions use:
+
+```text
+Generation level {level} bonus from {username} ({package_name})
+```
+
+Older rows without package details still display with fallback values.
+
+## `pages/chairman_bonus.php`
+
+Shows Chairman Bonus earnings for the current member from `chairman_bonus_ledger`.
+
+Displays:
+
+- From direct member.
+- Source generation bonus amount.
+- Percentage.
+- Chairman amount.
+- Source generation bonus description.
+- Date.
 
 ## `pages/community_bonus.php`
 
@@ -595,6 +639,7 @@ Known admin page keys:
 - `products`
 - `product_purchases`
 - `bonuses`
+- `chairman_bonus`
 - `cashback`
 - `royalty`
 - `payouts`
@@ -647,6 +692,8 @@ Shows admin totals:
 - Total package sales
 - Total bonuses
 - Total payouts
+- Total generation bonus
+- Total Chairman Bonus
 - Product purchases
 - Unused package codes
 - Unused product codes
@@ -709,6 +756,23 @@ Displays encoded product purchase records by joining:
 
 Displays all `bonus_ledger` records with member username and full name.
 
+Includes `chairman_bonus` as a filterable type.
+
+## `admin/pages/chairman_bonus.php`
+
+Displays Chairman Bonus audit records from `chairman_bonus_ledger`.
+
+Shows:
+
+- Chairman member.
+- From direct member.
+- Source generation bonus ledger ID.
+- Source generation bonus amount.
+- Chairman percentage.
+- Chairman amount.
+- Source description.
+- Date.
+
 ## `admin/pages/payouts.php`
 
 Displays all payout records with member username and full name.
@@ -719,6 +783,8 @@ Displays reports:
 
 - Members by package
 - Bonuses by type
+- Generation Bonus total
+- Chairman Bonus total
 - Purchases by product
 
 ## `admin/pages/leadership_ranks.php`
@@ -976,7 +1042,10 @@ Current known `type` values:
 
 - `direct_referral`
 - `generation_bonus`
+- `chairman_bonus`
 - `community`
+- `cashback_bonus`
+- `dominance_royalty_bonus`
 - `payout`
 
 Usage:
@@ -1108,6 +1177,33 @@ Usage:
 - Detailed audit trail for community bonuses.
 - Member community bonus page.
 - Each row should correspond to a wallet entry in `bonus_ledger` with type `community`.
+
+## `chairman_bonus_ledger`
+
+Stores detailed Chairman Bonus audit records.
+
+Columns:
+
+- `id` int primary key auto increment
+- `member_id` int
+- `from_member_id` int
+- `source_bonus_ledger_id` int
+- `source_generation_bonus_amount` decimal(10,2)
+- `percentage` decimal(5,2)
+- `amount` decimal(10,2)
+- `created_at` datetime default current timestamp
+
+Logical relationships:
+
+- `chairman_bonus_ledger.member_id` references the Chairman Bonus receiver in `members.id`
+- `chairman_bonus_ledger.from_member_id` references the direct referral who earned the source generation bonus
+- `chairman_bonus_ledger.source_bonus_ledger_id` references the original `bonus_ledger.id` row with `type='generation_bonus'`
+
+Important rules:
+
+- Unique key on `source_bonus_ledger_id` prevents duplicate Chairman Bonus from the same generation bonus transaction.
+- Each row should correspond to a wallet entry in `bonus_ledger` with type `chairman_bonus`.
+- Chairman Bonus is only computed from generation bonus earnings.
 
 ## `payouts`
 
@@ -1262,6 +1358,16 @@ community_bonus_ledger.from_member_id -> members.id
 
 `member_id` is the earner. `from_member_id` is the member whose product encode generated the community bonus.
 
+## Chairman Bonus Ledger
+
+```text
+chairman_bonus_ledger.member_id -> members.id
+chairman_bonus_ledger.from_member_id -> members.id
+chairman_bonus_ledger.source_bonus_ledger_id -> bonus_ledger.id
+```
+
+`member_id` is the qualified Chairman Bonus earner. `from_member_id` is the direct referral who earned the source generation bonus.
+
 ## Payout
 
 ```text
@@ -1352,7 +1458,8 @@ After registration succeeds:
 - `used_by_member_id` is set to the new member ID.
 - `used_at` is set to `NOW()`.
 - Direct referral bonus is inserted.
-- Generation bonuses are inserted.
+- Generation bonuses are inserted from level 2 through level 8 using `processGenerationBonuses()`.
+- Chairman Bonus is checked immediately after each generation bonus insert.
 - Sponsor cashback or Dominance Advancement Credit qualification is checked through `processCashbackAndAdvancement($conn, $sponsor_id)`.
 
 ## Genealogy And Upline
@@ -1378,7 +1485,7 @@ This function:
 
 Community bonus uses up to 8 levels.
 
-Generation bonus currently uses uplines above the sponsor for levels 2 to 5.
+Generation bonus uses uplines above the sponsor for levels 2 to 8.
 
 # BONUS SYSTEM
 
@@ -1477,32 +1584,89 @@ Trigger:
 Recipients:
 
 - Uplines above the immediate sponsor.
-- Current code starts from the sponsor's upline.
-- Displayed generation levels are 2 through 5.
+- Level 1 receives Direct Referral Bonus only.
+- Generation Bonus starts from level 2.
+- Generation Bonus pays up to level 8.
 
 Amount source:
 
 ```text
-packages.generation_bonus
+MIN(upline package generation value, downline package generation value)
 ```
 
 Ledger entry:
 
 ```text
 type = generation_bonus
-description = Generation level {level} bonus from {username}
+description = Generation level {level} bonus from {username} ({package_name})
 ```
 
-Current package generation bonuses:
+Package generation values:
 
-- Vision: ₱100
-- Legacy: ₱200
-- Dominance: ₱1,000
+- Vision: PHP 100
+- Legacy: PHP 150
+- Dominance: PHP 1,000
+
+Matrix behavior:
+
+- Vision upline earns PHP 100 from any downline package.
+- Legacy upline earns PHP 100 from Vision downline and PHP 150 from Legacy or Dominance downline.
+- Dominance upline earns PHP 100 from Vision downline, PHP 150 from Legacy downline, and PHP 1,000 from Dominance downline.
+
+Reusable functions:
+
+- `getPackageGenerationValue($package_id)`
+- `calculateGenerationBonusAmount($upline_package_id, $downline_package_id)`
+- `processGenerationBonuses($conn, $new_member_id, $sponsor_id, $new_member_package_id)`
 
 Important current detail:
 
-- `getUpline($conn, $sponsor_id, 4)` returns up to 4 uplines above the sponsor.
-- The code labels them as generation levels 2, 3, 4, and 5.
+- `getUpline($conn, $sponsor_id, 7)` returns up to 7 uplines above the sponsor.
+- The code labels them as generation levels 2 through 8.
+- `processChairmanBonus()` runs after every successful `generation_bonus` insert.
+
+## Chairman Bonus
+
+Trigger:
+
+- A `generation_bonus` row is inserted into `bonus_ledger`.
+
+Recipient:
+
+- The direct sponsor of the member who earned the source generation bonus, but only if that sponsor is Chairman qualified.
+
+Qualification:
+
+- Member package must be Dominance.
+- Member status must be active.
+- Member must have at least 5 active Direct Dominance referrals.
+
+Amount:
+
+```text
+generation_bonus_amount * 0.02
+```
+
+Ledger entry:
+
+```text
+type = chairman_bonus
+description = 2% Chairman Bonus from generation bonus of {receiver_username}
+```
+
+Audit table:
+
+```text
+chairman_bonus_ledger
+```
+
+Important rules:
+
+- Chairman Bonus is based only on `bonus_ledger.type='generation_bonus'`.
+- It does not include direct referral, community, payout, cashback, royalty, global pool, leadership, or advancement-credit records.
+- `chairman_bonus_ledger.source_bonus_ledger_id` is unique to prevent duplicates.
+- The withdrawable earning is inserted into `bonus_ledger` with type `chairman_bonus`.
+- Registration runs Chairman Bonus processing inside the same transaction as the generation bonus insert.
 
 ## Community Bonus
 
@@ -1654,11 +1818,20 @@ description = Payout request
 
 ## Generation Bonus
 
-- Levels 2 to 5
-- Amount depends on package:
-- Vision: ₱100
-- Legacy: ₱200
-- Dominance: ₱1,000
+- Level 1 receives Direct Referral Bonus only.
+- Levels 2 to 8 receive Generation Bonus.
+- Amount uses `MIN(upline package generation value, downline package generation value)`.
+- Vision generation value: PHP 100.
+- Legacy generation value: PHP 150.
+- Dominance generation value: PHP 1,000.
+
+## Chairman Bonus
+
+- Qualification requires Dominance package and 5 active Direct Dominance referrals.
+- Reward is 2% of generation bonus earned by direct referrals.
+- Source is `bonus_ledger.type='generation_bonus'` only.
+- Wallet earning uses `bonus_ledger.type='chairman_bonus'`.
+- Duplicate prevention uses `chairman_bonus_ledger.source_bonus_ledger_id`.
 
 ## Community Bonus
 
@@ -1947,7 +2120,6 @@ Important note:
 - `settings` table does not currently exist.
 - Global pool is display-only.
 - Leadership rank logic only computes L1.
-- Chairman Bonus qualification logic has not been implemented yet.
 - Payouts have no status/approval workflow.
 - Some multi-step write flows do not yet use transactions.
 - Duplicate bonus prevention is not fully enforced by unique database constraints.
@@ -2136,6 +2308,9 @@ Recommended indexes:
 - `bonus_ledger.type`
 - `community_bonus_ledger.member_id`
 - `community_bonus_ledger.from_member_id`
+- `chairman_bonus_ledger.member_id`
+- `chairman_bonus_ledger.from_member_id`
+- `chairman_bonus_ledger.source_bonus_ledger_id`
 - `payouts.member_id`
 
 ## Future Prompt Guidance For Codex

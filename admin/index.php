@@ -9,6 +9,7 @@ switch ($page_key) {
     case 'products': $page = 'pages/products.php'; break;
     case 'product_purchases': $page = 'pages/product_purchases.php'; break;
     case 'bonuses': $page = 'pages/bonuses.php'; break;
+    case 'chairman_bonus': $page = 'pages/chairman_bonus.php'; break;
     case 'cashback': $page = 'pages/cashback.php'; break;
     case 'royalty': $page = 'pages/royalty.php'; break;
     case 'payouts': $page = 'pages/payouts.php'; break;

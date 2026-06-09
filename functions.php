@@ -44,6 +44,36 @@ function getPackagePrice($conn, $package_id) {
     return $row ? (float)$row['price'] : 0;
 }
 
+function getPackageGenerationValue($package_id) {
+    $package_ids = getVldPackageIds();
+    $package_id = (int)$package_id;
+
+    if ($package_id === $package_ids['vision']) {
+        return 100.00;
+    }
+
+    if ($package_id === $package_ids['legacy']) {
+        return 150.00;
+    }
+
+    if ($package_id === $package_ids['dominance']) {
+        return 1000.00;
+    }
+
+    return 0.00;
+}
+
+function calculateGenerationBonusAmount($upline_package_id, $downline_package_id) {
+    $upline_value = getPackageGenerationValue($upline_package_id);
+    $downline_value = getPackageGenerationValue($downline_package_id);
+
+    if ($upline_value <= 0 || $downline_value <= 0) {
+        return 0.00;
+    }
+
+    return min($upline_value, $downline_value);
+}
+
 function getUpline($conn, $member_id, $levels = 8) {
     $uplines = [];
     $current = $member_id;
@@ -74,6 +104,201 @@ function addBonus($conn, $member_id, $amount, $type, $desc) {
     }
 
     return $conn->insert_id;
+}
+
+function ensureChairmanBonusLedgerTable($conn) {
+    $sql = "
+        CREATE TABLE IF NOT EXISTS chairman_bonus_ledger (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            member_id int(11) NOT NULL,
+            from_member_id int(11) NOT NULL,
+            source_bonus_ledger_id int(11) NOT NULL,
+            source_generation_bonus_amount decimal(10,2) NOT NULL DEFAULT 0.00,
+            percentage decimal(5,2) NOT NULL DEFAULT 0.02,
+            amount decimal(10,2) NOT NULL DEFAULT 0.00,
+            created_at datetime DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            UNIQUE KEY uniq_chairman_source_bonus (source_bonus_ledger_id),
+            KEY idx_chairman_member_id (member_id),
+            KEY idx_chairman_from_member_id (from_member_id),
+            KEY idx_chairman_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    ";
+
+    if (!$conn->query($sql)) {
+        throw new Exception("Unable to create Chairman Bonus ledger table.");
+    }
+}
+
+function isChairmanQualified($conn, $member_id) {
+    $package_ids = getVldPackageIds();
+
+    $stmt = $conn->prepare("
+        SELECT package_id, status
+        FROM members
+        WHERE id=?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $member_id);
+    $stmt->execute();
+    $member = $stmt->get_result()->fetch_assoc();
+
+    if (!$member || $member['status'] !== 'active' || (int)$member['package_id'] !== $package_ids['dominance']) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS total
+        FROM members
+        WHERE sponsor_id=? AND status='active' AND package_id=?
+    ");
+    $stmt->bind_param("ii", $member_id, $package_ids['dominance']);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return $row && (int)$row['total'] >= 5;
+}
+
+function processChairmanBonus($conn, $generation_receiver_id, $source_bonus_ledger_id, $generation_bonus_amount) {
+    $generation_bonus_amount = (float)$generation_bonus_amount;
+
+    if ($generation_bonus_amount <= 0) {
+        return [
+            'awarded' => false,
+            'message' => 'Generation bonus amount is zero.'
+        ];
+    }
+
+    $stmt = $conn->prepare("
+        SELECT id, username, sponsor_id, status
+        FROM members
+        WHERE id=?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $generation_receiver_id);
+    $stmt->execute();
+    $receiver = $stmt->get_result()->fetch_assoc();
+
+    if (!$receiver || !$receiver['sponsor_id'] || $receiver['status'] !== 'active') {
+        return [
+            'awarded' => false,
+            'message' => 'Generation receiver does not have an active sponsor.'
+        ];
+    }
+
+    $chairman_member_id = (int)$receiver['sponsor_id'];
+
+    if (!isChairmanQualified($conn, $chairman_member_id)) {
+        return [
+            'awarded' => false,
+            'message' => 'Sponsor is not Chairman qualified.'
+        ];
+    }
+
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM chairman_bonus_ledger
+        WHERE source_bonus_ledger_id=?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $source_bonus_ledger_id);
+    $stmt->execute();
+
+    if ($stmt->get_result()->fetch_assoc()) {
+        return [
+            'awarded' => false,
+            'message' => 'Chairman Bonus already exists for this source bonus.'
+        ];
+    }
+
+    $percentage = 0.02;
+    $amount = round($generation_bonus_amount * $percentage, 2);
+
+    if ($amount <= 0) {
+        return [
+            'awarded' => false,
+            'message' => 'Chairman Bonus amount is zero.'
+        ];
+    }
+
+    $stmt = $conn->prepare("
+        INSERT INTO chairman_bonus_ledger
+        (member_id, from_member_id, source_bonus_ledger_id, source_generation_bonus_amount, percentage, amount)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->bind_param(
+        "iiiddd",
+        $chairman_member_id,
+        $generation_receiver_id,
+        $source_bonus_ledger_id,
+        $generation_bonus_amount,
+        $percentage,
+        $amount
+    );
+
+    if (!$stmt->execute()) {
+        throw new Exception("Unable to insert Chairman Bonus ledger entry.");
+    }
+
+    $chairman_bonus_ledger_id = $conn->insert_id;
+    $description = "2% Chairman Bonus from generation bonus of " . $receiver['username'];
+    $bonus_ledger_id = addBonus($conn, $chairman_member_id, $amount, "chairman_bonus", $description);
+
+    return [
+        'awarded' => true,
+        'chairman_bonus_ledger_id' => $chairman_bonus_ledger_id,
+        'bonus_ledger_id' => $bonus_ledger_id,
+        'amount' => $amount
+    ];
+}
+
+function processGenerationBonuses($conn, $new_member_id, $sponsor_id, $new_member_package_id) {
+    $new_member = getMemberPackage($conn, $new_member_id);
+
+    if (!$new_member) {
+        throw new Exception("Unable to load new member for generation bonus processing.");
+    }
+
+    $source_username = $new_member['username'];
+    $source_package_name = $new_member['package_name'] ?? 'No Package';
+    $uplines = getUpline($conn, $sponsor_id, 7);
+    $generation_level = 2;
+    $processed = [];
+
+    foreach ($uplines as $upline_id) {
+        if ($generation_level > 8) {
+            break;
+        }
+
+        $upline = getMemberPackage($conn, $upline_id);
+
+        if (!$upline) {
+            $generation_level++;
+            continue;
+        }
+
+        $bonus_amount = calculateGenerationBonusAmount((int)$upline['package_id'], $new_member_package_id);
+
+        if ($bonus_amount <= 0) {
+            $generation_level++;
+            continue;
+        }
+
+        $description = "Generation level " . $generation_level . " bonus from " . $source_username . " (" . $source_package_name . ")";
+        $bonus_ledger_id = addBonus($conn, $upline_id, $bonus_amount, "generation_bonus", $description);
+        processChairmanBonus($conn, $upline_id, $bonus_ledger_id, $bonus_amount);
+
+        $processed[] = [
+            'level' => $generation_level,
+            'member_id' => $upline_id,
+            'bonus_ledger_id' => $bonus_ledger_id,
+            'amount' => $bonus_amount
+        ];
+
+        $generation_level++;
+    }
+
+    return $processed;
 }
 
 function processCommunityBonus($conn, $member_id, $quantity) {
