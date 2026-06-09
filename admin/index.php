@@ -10,11 +10,11 @@ switch ($page_key) {
     case 'product_purchases': $page = 'pages/product_purchases.php'; break;
     case 'bonuses': $page = 'pages/bonuses.php'; break;
     case 'chairman_bonus': $page = 'pages/chairman_bonus.php'; break;
+	case 'quarterly_draw': $page = 'pages/quarterly_draw.php'; break;
     case 'cashback': $page = 'pages/cashback.php'; break;
     case 'royalty': $page = 'pages/royalty.php'; break;
     case 'payouts': $page = 'pages/payouts.php'; break;
     case 'leadership_ranks': $page = 'pages/leadership_ranks.php'; break;
-    case 'global_pool': $page = 'pages/global_pool.php'; break;
     case 'reports': $page = 'pages/reports.php'; break;
     case 'settings': $page = 'pages/settings.php'; break;
     case 'package_codes': $page = 'pages/package_codes.php'; break;

@@ -23,7 +23,6 @@ $show_dominance_upgrade = $sidebar_package_id === $sidebar_package_ids['vision']
         <a href="index.php?page=chairman_bonus">Chairman Bonus</a>
         <a href="index.php?page=encode_product">Encode Product</a>
         <a href="index.php?page=leadership_ranking">Leadership Ranking</a>
-        <a href="index.php?page=global_pool">Global Pool</a>
         <?php if ($show_dominance_upgrade): ?>
             <a href="index.php?page=dominance_upgrade">Dominance Upgrade</a>
         <?php endif; ?>

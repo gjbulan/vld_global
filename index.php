@@ -17,7 +17,6 @@ switch ($page_key) {
     case 'community_bonus': $page = 'pages/community_bonus.php'; break;
     case 'encode_product': $page = 'pages/encode_product.php'; break;
     case 'leadership_ranking': $page = 'pages/leadership_ranking.php'; break;
-    case 'global_pool': $page = 'pages/global_pool.php'; break;
     case 'dominance_upgrade':
         if (isset($_SESSION['member_id'])) {
             $package_ids = getVldPackageIds();

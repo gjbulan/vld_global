@@ -16,11 +16,11 @@
         <a href="index.php?page=product_purchases">Product Purchases</a>
         <a href="index.php?page=bonuses">Bonuses</a>
         <a href="index.php?page=chairman_bonus">Chairman Bonus</a>
+		 <a href="index.php?page=quarterly_draw">Quarterly Draw</a>
         <a href="index.php?page=cashback">Cashback &amp; Advancement</a>
         <a href="index.php?page=royalty">Dominance Royalty</a>
         <a href="index.php?page=payouts">Payouts</a>
         <a href="index.php?page=leadership_ranks">Leadership Ranks</a>
-        <a href="index.php?page=global_pool">Global Pool</a>
         <a href="index.php?page=reports">Reports</a>
         <a href="index.php?page=settings">Settings</a>
         <a href="index.php?page=package_codes">Package Codes</a>

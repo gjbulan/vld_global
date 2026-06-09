@@ -22,7 +22,7 @@ The system is built around these core workflows:
 - Members encode product codes, which triggers community bonuses to uplines.
 - All member wallet earnings and deductions are stored in `bonus_ledger`.
 - Members can request payouts from their available ledger balance.
-- Admin users manage members, packages, package codes, products, product codes, payouts, bonuses, reports, leadership ranking views, global pool views, and settings views.
+- Admin users manage members, packages, package codes, products, product codes, payouts, bonuses, reports, leadership ranking views, and settings views.
 
 ## MLM Compensation Structure
 
@@ -33,7 +33,6 @@ The application currently supports these compensation concepts:
 - Chairman Bonus override from generation bonuses earned by qualified Dominance members' direct referrals.
 - Community bonus from product code encoding, paid up to 8 sponsor-upline levels.
 - Leadership ranking display based on direct and rank hierarchy requirements.
-- Global pool display calculated from total package sales.
 - Payout deduction using a 10% fee plus a flat ₱100 fee.
 
 The current implemented wallet source of truth is `bonus_ledger`. Positive rows represent earnings. Negative rows represent deductions such as payout requests.
@@ -53,7 +52,6 @@ Members use the front-facing portal:
 - View generation and community bonus history.
 - Encode product codes.
 - View leadership ranking.
-- View global pool qualification.
 - Request payouts.
 - View payout history.
 - Update profile information.
@@ -80,7 +78,6 @@ Admins use the back-office portal under `/admin`:
 - View payouts.
 - View reports.
 - View leadership rank calculations.
-- View global pool calculations.
 - View static settings.
 
 Admin sessions use:
@@ -322,7 +319,6 @@ Known member page keys:
 - `community_bonus`
 - `encode_product`
 - `leadership_ranking`
-- `global_pool`
 - `dominance_upgrade`
 - `payout`
 - `payout_history`
@@ -577,19 +573,6 @@ Displayed future hierarchy:
 - L5: 2 L4
 - L6: 2 L5
 
-## `pages/global_pool.php`
-
-Displays global pool qualification for the current member.
-
-Current logic:
-
-- Counts direct referrals where `package_id IN (2,3)`.
-- Member is qualified if they have at least 5 Legacy/Dominance directs.
-- Calculates total package sales from all members joined to packages.
-- Calculates global pool as 2% of total package sales.
-
-This page currently displays calculations only. It does not insert global pool payouts into `bonus_ledger`.
-
 ## `pages/dominance_upgrade.php`
 
 Allows qualified Vision or Legacy members to consume an unused Dominance Advancement Credit. This page is hidden from Dominance members and manually opened Dominance links redirect to the dashboard.
@@ -644,7 +627,6 @@ Known admin page keys:
 - `royalty`
 - `payouts`
 - `leadership_ranks`
-- `global_pool`
 - `reports`
 - `settings`
 - `package_codes`
@@ -796,22 +778,6 @@ Current implemented admin rank logic:
 - `L1` if member has at least 10 directs.
 - `No Rank` otherwise.
 
-## `admin/pages/global_pool.php`
-
-Displays calculated global pool information:
-
-- Total package sales
-- Pool percentage
-- Total pool amount
-- Qualified members
-- Estimated share per qualified member
-
-Qualification:
-
-- At least 5 direct members with `package_id IN (2,3)`.
-
-This page currently displays estimates only. It does not insert global pool payout entries into `bonus_ledger`.
-
 ## `admin/pages/settings.php`
 
 Displays static settings values:
@@ -851,7 +817,6 @@ Current live database and `database/db.sql` contain these physical tables:
 These requested business tables/pages are currently implemented as calculated/static views but are not physical tables in the current schema:
 
 - `leadership_ranks`
-- `global_pool`
 - `settings`
 
 ## Important Database Rule
@@ -888,7 +853,6 @@ Usage:
 - Genealogy
 - Package ownership
 - Leadership rank calculations
-- Global pool qualification
 
 ## `packages`
 
@@ -919,7 +883,6 @@ Usage:
 - Direct referral bonus amount
 - Generation bonus amount
 - Total package sales calculation
-- Global pool calculation
 
 ## `package_codes`
 
@@ -1254,28 +1217,6 @@ Recommended future role:
 - Store direct requirement or downline rank requirement.
 - Store member rank achievements in a separate history table if rank tracking needs auditability.
 
-## `global_pool`
-
-Requested business table, but not currently present in the physical database.
-
-Current implementation:
-
-- Member page `pages/global_pool.php` calculates qualification and pool amount dynamically.
-- Admin page `admin/pages/global_pool.php` calculates total pool and estimated shares dynamically.
-- Pool percentage is hardcoded as 2%.
-- Qualified members require at least 5 direct members with Legacy or Dominance packages.
-- No global pool earnings are inserted into `bonus_ledger`.
-
-If added in the future, this table should track pool periods, total sales, pool percentage, pool amount, qualified member count, and distribution status.
-
-Recommended future role:
-
-- Store pool calculation batches.
-- Store payout periods.
-- Store whether a pool batch has been distributed.
-- Prevent redistributing the same pool period.
-- Insert actual pool earnings into `bonus_ledger` only once per member per pool period.
-
 ## `settings`
 
 Requested business table, but not currently present in the physical database.
@@ -1292,7 +1233,6 @@ If added in the future, this table should store editable system configuration su
 - Payout flat fee
 - Community bonus per quantity
 - Community bonus max levels
-- Global pool percentage
 - Rank requirements
 - Maintenance flags
 
@@ -1663,7 +1603,7 @@ chairman_bonus_ledger
 Important rules:
 
 - Chairman Bonus is based only on `bonus_ledger.type='generation_bonus'`.
-- It does not include direct referral, community, payout, cashback, royalty, global pool, leadership, or advancement-credit records.
+- It does not include direct referral, community, payout, cashback, royalty, leadership, or advancement-credit records.
 - `chairman_bonus_ledger.source_bonus_ledger_id` is unique to prevent duplicates.
 - The withdrawable earning is inserted into `bonus_ledger` with type `chairman_bonus`.
 - Registration runs Chairman Bonus processing inside the same transaction as the generation bonus insert.
@@ -1732,38 +1672,6 @@ Future implementation should decide whether ranks are:
 - Stored as member achievement records.
 - Recalculated by an admin action.
 - Calculated in a scheduled process.
-
-## Global Pool
-
-Current implementation is calculated live and does not use a dedicated database table.
-
-Current rules:
-
-- Total package sales = sum of package prices for registered members.
-- Global pool = 2% of total package sales.
-- A member qualifies with at least 5 direct referrals whose `package_id` is 2 or 3.
-- Package ID 2 is Legacy.
-- Package ID 3 is Dominance.
-
-Admin page estimates:
-
-- Total pool amount.
-- Qualified member count.
-- Equal share per qualified member.
-
-Member page shows:
-
-- Total package sales.
-- Pool amount.
-- Member's Legacy/Dominance direct count.
-- Qualification status.
-
-Important current limitation:
-
-- Global pool shares are not inserted into `bonus_ledger`.
-- There is no pool period table.
-- There is no distribution history.
-- There is no duplicate-distribution prevention yet.
 
 ## Payout Deductions
 
@@ -1838,12 +1746,6 @@ description = Payout request
 - 8 levels
 - ₱5 per product quantity per level
 - Triggered by product code encoding
-
-## Global Pool
-
-- 2% of total package sales
-- Qualification requires 5 direct Legacy/Dominance members
-- Current implementation is estimated/display-only
 
 ## Dominance Royalty Bonus
 
@@ -1929,7 +1831,6 @@ Critical transaction candidates:
 - Community bonus ledger insert
 - Bonus ledger insert
 - Payout request
-- Future global pool distribution
 - Future leadership bonus distribution
 
 Recommended pattern:
@@ -1965,7 +1866,6 @@ Examples:
 - A direct referral bonus must only be paid once per registration.
 - A generation bonus must only be paid once per registration/upline/level.
 - A community bonus must only be paid once per product code/upline/level.
-- A global pool distribution must only run once per pool period.
 
 # UI THEME
 
@@ -2116,9 +2016,7 @@ Important note:
 ## Current Known Gaps To Respect
 
 - `leadership_ranks` table does not currently exist.
-- `global_pool` table does not currently exist.
 - `settings` table does not currently exist.
-- Global pool is display-only.
 - Leadership rank logic only computes L1.
 - Payouts have no status/approval workflow.
 - Some multi-step write flows do not yet use transactions.
@@ -2163,7 +2061,6 @@ lowercase_words_with_underscores
 Examples:
 
 - `leadership_bonus`
-- `global_pool`
 - `matching_bonus`
 - `rank_reward`
 
@@ -2214,26 +2111,6 @@ Safe approach:
 - Add admin tools to recalculate ranks.
 - Insert rank bonuses into `bonus_ledger` only if rank achievement has not already been rewarded.
 
-## Adding Global Pool Distribution
-
-Global pool is currently display-only. To make it payable:
-
-- Add a pool batch table.
-- Define pool period start and end dates.
-- Store total package sales for the period.
-- Store pool percentage.
-- Store calculated pool amount.
-- Store qualified member count.
-- Store share per member.
-- Store distribution status.
-- Insert one `bonus_ledger` row per qualified member.
-- Prevent rerunning the same period.
-
-Recommended duplicate prevention:
-
-- Unique key on pool period.
-- Unique key on member/pool batch distribution.
-
 ## Adding Settings Persistence
 
 Settings are currently hardcoded. To make settings editable:
@@ -2252,7 +2129,6 @@ Possible setting keys:
 - `payout_flat_fee`
 - `community_bonus_per_quantity`
 - `community_bonus_levels`
-- `global_pool_percent`
 
 ## Adding Payout Approval
 
