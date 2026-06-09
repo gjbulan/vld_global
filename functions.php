@@ -1,5 +1,5 @@
 <?php
-include 'config.php';
+include_once __DIR__ . '/config.php';
 
 function getVldPackageIds() {
     return [
@@ -42,6 +42,199 @@ function getPackagePrice($conn, $package_id) {
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     return $row ? (float)$row['price'] : 0;
+}
+
+function getTravelRankLevels() {
+    return [
+        1 => 500000.00,
+        2 => 3000000.00,
+        3 => 15000000.00,
+        4 => 60000000.00,
+        5 => 180000000.00,
+        6 => 540000000.00
+    ];
+}
+
+function formatTravelRankName($rank_level) {
+    $rank_level = (int)$rank_level;
+    return $rank_level > 0 ? "Level " . $rank_level : "No Rank";
+}
+
+function ensureMemberRankHistoryTable($conn) {
+    static $ensured = false;
+
+    if ($ensured) {
+        return;
+    }
+
+    $sql = "
+        CREATE TABLE IF NOT EXISTS member_rank_history (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            member_id int(11) NOT NULL,
+            rank_level int(11) NOT NULL,
+            required_volume decimal(15,2) NOT NULL DEFAULT 0.00,
+            achieved_volume decimal(15,2) NOT NULL DEFAULT 0.00,
+            qualified_at datetime NOT NULL,
+            created_at datetime DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            UNIQUE KEY uniq_member_rank_level (member_id, rank_level),
+            KEY idx_member_rank_member_id (member_id),
+            KEY idx_member_rank_rank_level (rank_level),
+            KEY idx_member_rank_qualified_at (qualified_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    ";
+
+    if (!$conn->query($sql)) {
+        throw new Exception("Unable to create member rank history table.");
+    }
+
+    $ensured = true;
+}
+
+function getDirectSalesVolumeFromCurrentPackages($conn, $member_id) {
+    $stmt = $conn->prepare("
+        SELECT COALESCE(SUM(p.price), 0) AS total
+        FROM members d
+        JOIN packages p ON d.package_id = p.id
+        WHERE d.sponsor_id=?
+    ");
+    $stmt->bind_param("i", $member_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    return $row ? (float)$row['total'] : 0.00;
+}
+
+function getDirectSalesVolume($conn, $member_id) {
+    return getDirectSalesVolumeFromCurrentPackages($conn, $member_id);
+}
+
+function getCurrentTravelRank($conn, $member_id) {
+    ensureMemberRankHistoryTable($conn);
+
+    $stmt = $conn->prepare("
+        SELECT rank_level, required_volume, achieved_volume, qualified_at
+        FROM member_rank_history
+        WHERE member_id=?
+        ORDER BY rank_level DESC
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $member_id);
+    $stmt->execute();
+    $rank = $stmt->get_result()->fetch_assoc();
+    $direct_sales_volume = getDirectSalesVolume($conn, $member_id);
+
+    if (!$rank) {
+        return [
+            'rank_level' => 0,
+            'rank_name' => 'No Rank',
+            'required_volume' => 0.00,
+            'achieved_volume' => 0.00,
+            'direct_sales_volume' => $direct_sales_volume,
+            'qualified_at' => null
+        ];
+    }
+
+    $rank_level = (int)$rank['rank_level'];
+
+    return [
+        'rank_level' => $rank_level,
+        'rank_name' => formatTravelRankName($rank_level),
+        'required_volume' => (float)$rank['required_volume'],
+        'achieved_volume' => (float)$rank['achieved_volume'],
+        'direct_sales_volume' => $direct_sales_volume,
+        'qualified_at' => $rank['qualified_at']
+    ];
+}
+
+function getNextTravelRank($conn, $member_id) {
+    $current_rank = getCurrentTravelRank($conn, $member_id);
+    $current_level = (int)$current_rank['rank_level'];
+    $direct_sales_volume = (float)$current_rank['direct_sales_volume'];
+    $rank_levels = getTravelRankLevels();
+
+    foreach ($rank_levels as $rank_level => $required_volume) {
+        if ($rank_level > $current_level) {
+            return [
+                'rank_level' => $rank_level,
+                'rank_name' => formatTravelRankName($rank_level),
+                'required_volume' => (float)$required_volume,
+                'remaining_volume' => max(0, (float)$required_volume - $direct_sales_volume),
+                'progress_percent' => $required_volume > 0 ? min(100, ($direct_sales_volume / (float)$required_volume) * 100) : 100
+            ];
+        }
+    }
+
+    return [
+        'rank_level' => 0,
+        'rank_name' => 'Max Rank',
+        'required_volume' => 0.00,
+        'remaining_volume' => 0.00,
+        'progress_percent' => 100
+    ];
+}
+
+function processTravelRankQualification($conn, $member_id) {
+    ensureMemberRankHistoryTable($conn);
+
+    $member_id = (int)$member_id;
+
+    if ($member_id <= 0) {
+        return [];
+    }
+
+    $direct_sales_volume = getDirectSalesVolume($conn, $member_id);
+    $rank_levels = getTravelRankLevels();
+    $inserted = [];
+
+    foreach ($rank_levels as $rank_level => $required_volume) {
+        if ($direct_sales_volume < $required_volume) {
+            continue;
+        }
+
+        $stmt = $conn->prepare("
+            INSERT IGNORE INTO member_rank_history
+            (member_id, rank_level, required_volume, achieved_volume, qualified_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        $stmt->bind_param("iidd", $member_id, $rank_level, $required_volume, $direct_sales_volume);
+
+        if (!$stmt->execute()) {
+            throw new Exception("Unable to insert travel rank achievement.");
+        }
+
+        if ($stmt->affected_rows === 1) {
+            $inserted[] = [
+                'member_id' => $member_id,
+                'rank_level' => $rank_level,
+                'required_volume' => (float)$required_volume,
+                'achieved_volume' => $direct_sales_volume
+            ];
+        }
+    }
+
+    return $inserted;
+}
+
+function processAllTravelRankQualifications($conn) {
+    ensureMemberRankHistoryTable($conn);
+
+    $result = $conn->query("SELECT id FROM members ORDER BY id ASC");
+
+    if (!$result) {
+        throw new Exception("Unable to load members for travel rank qualification.");
+    }
+
+    $processed = [];
+
+    while ($member = $result->fetch_assoc()) {
+        $new_ranks = processTravelRankQualification($conn, (int)$member['id']);
+
+        if ($new_ranks) {
+            $processed[(int)$member['id']] = $new_ranks;
+        }
+    }
+
+    return $processed;
 }
 
 function getPackageGenerationValue($package_id) {
@@ -104,6 +297,143 @@ function addBonus($conn, $member_id, $amount, $type, $desc) {
     }
 
     return $conn->insert_id;
+}
+
+function tableColumnExists($conn, $table_name, $column_name) {
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS total
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+    ");
+    $stmt->bind_param("ss", $table_name, $column_name);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return $row && (int)$row['total'] > 0;
+}
+
+function tableIndexExists($conn, $table_name, $index_name) {
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS total
+        FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND INDEX_NAME = ?
+    ");
+    $stmt->bind_param("ss", $table_name, $index_name);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return $row && (int)$row['total'] > 0;
+}
+
+function addColumnIfMissing($conn, $table_name, $column_name, $definition) {
+    if (!tableColumnExists($conn, $table_name, $column_name)) {
+        if (!$conn->query("ALTER TABLE `$table_name` ADD COLUMN `$column_name` $definition")) {
+            throw new Exception("Unable to add column $table_name.$column_name.");
+        }
+    }
+}
+
+function addIndexIfMissing($conn, $table_name, $index_name, $definition) {
+    if (!tableIndexExists($conn, $table_name, $index_name)) {
+        if (!$conn->query("ALTER TABLE `$table_name` ADD $definition")) {
+            throw new Exception("Unable to add index $index_name on $table_name.");
+        }
+    }
+}
+
+function ensureProductBonusSchema($conn) {
+    static $ensured = false;
+
+    if ($ensured) {
+        return;
+    }
+
+    addColumnIfMissing($conn, "products", "personal_bonus", "decimal(10,2) NOT NULL DEFAULT 0.00");
+    addColumnIfMissing($conn, "products", "community_bonus", "decimal(10,2) NOT NULL DEFAULT 0.00");
+    addColumnIfMissing($conn, "products", "status", "varchar(20) NOT NULL DEFAULT 'active'");
+    addColumnIfMissing($conn, "products", "created_at", "datetime DEFAULT current_timestamp()");
+    addIndexIfMissing($conn, "products", "idx_products_status", "KEY `idx_products_status` (`status`)");
+
+    addColumnIfMissing($conn, "product_purchases", "product_code_id", "int(11) DEFAULT NULL");
+    addIndexIfMissing($conn, "product_purchases", "uniq_product_purchases_product_code", "UNIQUE KEY `uniq_product_purchases_product_code` (`product_code_id`)");
+    addIndexIfMissing($conn, "product_purchases", "idx_product_purchases_member_created", "KEY `idx_product_purchases_member_created` (`member_id`,`created_at`)");
+    addIndexIfMissing($conn, "product_purchases", "idx_product_purchases_product_id", "KEY `idx_product_purchases_product_id` (`product_id`)");
+
+    addColumnIfMissing($conn, "community_bonus_ledger", "product_id", "int(11) DEFAULT NULL");
+    addColumnIfMissing($conn, "community_bonus_ledger", "product_purchase_id", "int(11) DEFAULT NULL");
+    addColumnIfMissing($conn, "community_bonus_ledger", "source_product_code_id", "int(11) DEFAULT NULL");
+    addColumnIfMissing($conn, "community_bonus_ledger", "quantity", "int(11) NOT NULL DEFAULT 0");
+    addColumnIfMissing($conn, "community_bonus_ledger", "bonus_ledger_id", "int(11) DEFAULT NULL");
+    addIndexIfMissing($conn, "community_bonus_ledger", "uniq_community_purchase_bonus_source", "UNIQUE KEY `uniq_community_purchase_bonus_source` (`source_product_code_id`,`member_id`,`level`)");
+    addIndexIfMissing($conn, "community_bonus_ledger", "idx_community_product_purchase_id", "KEY `idx_community_product_purchase_id` (`product_purchase_id`)");
+    addIndexIfMissing($conn, "community_bonus_ledger", "idx_community_product_id", "KEY `idx_community_product_id` (`product_id`)");
+    addIndexIfMissing($conn, "community_bonus_ledger", "idx_community_bonus_ledger_id", "KEY `idx_community_bonus_ledger_id` (`bonus_ledger_id`)");
+
+    addIndexIfMissing($conn, "product_codes", "idx_product_codes_product_status", "KEY `idx_product_codes_product_status` (`product_id`,`status`)");
+
+    $ensured = true;
+}
+
+function seedDefaultProducts($conn) {
+    ensureProductBonusSchema($conn);
+
+    $defaults = [
+        [
+            'id' => 1,
+            'name' => 'Nutramin',
+            'personal_bonus' => 15.00,
+            'community_bonus' => 5.00,
+            'status' => 'active'
+        ],
+        [
+            'id' => 2,
+            'name' => 'Healthy Coffee',
+            'personal_bonus' => 10.00,
+            'community_bonus' => 5.00,
+            'status' => 'active'
+        ]
+    ];
+
+    $stmt = $conn->prepare("
+        INSERT INTO products (id, name, personal_bonus, community_bonus, status)
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            name=VALUES(name),
+            personal_bonus=VALUES(personal_bonus),
+            community_bonus=VALUES(community_bonus),
+            status=VALUES(status)
+    ");
+
+    foreach ($defaults as $product) {
+        $id = (int)$product['id'];
+        $name = $product['name'];
+        $personal_bonus = (float)$product['personal_bonus'];
+        $community_bonus = (float)$product['community_bonus'];
+        $status = $product['status'];
+
+        $stmt->bind_param(
+            "isdds",
+            $id,
+            $name,
+            $personal_bonus,
+            $community_bonus,
+            $status
+        );
+
+        if (!$stmt->execute()) {
+            throw new Exception("Unable to seed default products.");
+        }
+    }
+
+    $stmt = $conn->prepare("UPDATE products SET status='inactive' WHERE id NOT IN (1, 2)");
+
+    if (!$stmt->execute()) {
+        throw new Exception("Unable to deactivate non-default products.");
+    }
 }
 
 function ensureChairmanBonusLedgerTable($conn) {
@@ -301,21 +631,160 @@ function processGenerationBonuses($conn, $new_member_id, $sponsor_id, $new_membe
     return $processed;
 }
 
-function processCommunityBonus($conn, $member_id, $quantity) {
+function getProductBonusConfig($conn, $product_id) {
+    ensureProductBonusSchema($conn);
+
+    $stmt = $conn->prepare("
+        SELECT id, name, personal_bonus, community_bonus, status
+        FROM products
+        WHERE id=?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+function getMonthlyProductPurchaseCount($conn, $member_id, $month = null) {
+    ensureProductBonusSchema($conn);
+
+    if ($month === null || $month === "") {
+        $month = date("Y-m");
+    }
+
+    $stmt = $conn->prepare("
+        SELECT COALESCE(SUM(pp.quantity), 0) AS total
+        FROM product_purchases pp
+        JOIN products p ON pp.product_id = p.id
+        WHERE pp.member_id=?
+          AND DATE_FORMAT(pp.created_at, '%Y-%m')=?
+          AND p.id IN (1, 2)
+          AND p.status='active'
+    ");
+    $stmt->bind_param("is", $member_id, $month);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return $row ? (int)$row['total'] : 0;
+}
+
+function isCommunityBonusQualified($conn, $member_id) {
+    return getMonthlyProductPurchaseCount($conn, $member_id) >= 2;
+}
+
+function processPersonalPurchaseBonus($conn, $member_id, $product_id, $quantity) {
+    $product = getProductBonusConfig($conn, $product_id);
+
+    if (!$product || $product['status'] !== 'active') {
+        throw new Exception("Product is not active for personal purchase bonus.");
+    }
+
+    $quantity = (int)$quantity;
+
+    if ($quantity <= 0) {
+        throw new Exception("Product quantity must be greater than zero.");
+    }
+
+    $amount = round((float)$product['personal_bonus'] * $quantity, 2);
+
+    if ($amount <= 0) {
+        return [
+            'awarded' => false,
+            'amount' => 0.00
+        ];
+    }
+
+    $description = "Personal purchase bonus from " . $product['name'] . " x " . $quantity;
+    $bonus_ledger_id = addBonus($conn, $member_id, $amount, "personal_purchase_bonus", $description);
+
+    return [
+        'awarded' => true,
+        'bonus_ledger_id' => $bonus_ledger_id,
+        'amount' => $amount
+    ];
+}
+
+function processCommunityBonus($conn, $member_id, $product_id, $quantity, $product_purchase_id = null, $source_product_code_id = null) {
+    ensureProductBonusSchema($conn);
+
+    $product = getProductBonusConfig($conn, $product_id);
+
+    if (!$product || $product['status'] !== 'active') {
+        throw new Exception("Product is not active for community purchase bonus.");
+    }
+
+    $quantity = (int)$quantity;
+
+    if ($quantity <= 0) {
+        throw new Exception("Product quantity must be greater than zero.");
+    }
+
+    $bonus = round((float)$product['community_bonus'] * $quantity, 2);
+
+    if ($bonus <= 0) {
+        return [];
+    }
+
+    $source_member = getMemberPackage($conn, $member_id);
+    $source_username = $source_member ? $source_member['username'] : (string)$member_id;
     $uplines = getUpline($conn, $member_id, 8);
+    $processed = [];
 
     foreach ($uplines as $level => $upline_id) {
-        $bonus = $quantity * 5;
-
-        $stmt = $conn->prepare("INSERT INTO community_bonus_ledger (member_id, from_member_id, level, amount) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("iiid", $upline_id, $member_id, $level, $bonus);
-
-        if (!$stmt->execute()) {
-            throw new Exception("Unable to insert community bonus ledger entry.");
+        if (!isCommunityBonusQualified($conn, $upline_id)) {
+            continue;
         }
 
-        addBonus($conn, $upline_id, $bonus, "community", "Level $level bonus from member $member_id");
+        if ($source_product_code_id !== null) {
+            $stmt = $conn->prepare("
+                SELECT id
+                FROM community_bonus_ledger
+                WHERE source_product_code_id=? AND member_id=? AND level=?
+                LIMIT 1
+            ");
+            $stmt->bind_param("iii", $source_product_code_id, $upline_id, $level);
+            $stmt->execute();
+
+            if ($stmt->get_result()->fetch_assoc()) {
+                continue;
+            }
+        }
+
+        $description = "Community purchase bonus Level " . $level . " from " . $source_username . " (" . $product['name'] . " x " . $quantity . ")";
+        $bonus_ledger_id = addBonus($conn, $upline_id, $bonus, "community_purchase_bonus", $description);
+
+        $stmt = $conn->prepare("
+            INSERT INTO community_bonus_ledger
+            (member_id, from_member_id, product_id, product_purchase_id, source_product_code_id, level, quantity, amount, bonus_ledger_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->bind_param(
+            "iiiiiiidi",
+            $upline_id,
+            $member_id,
+            $product_id,
+            $product_purchase_id,
+            $source_product_code_id,
+            $level,
+            $quantity,
+            $bonus,
+            $bonus_ledger_id
+        );
+
+        if (!$stmt->execute()) {
+            throw new Exception("Unable to insert community purchase bonus ledger entry.");
+        }
+
+        $processed[] = [
+            'level' => $level,
+            'member_id' => $upline_id,
+            'amount' => $bonus,
+            'bonus_ledger_id' => $bonus_ledger_id,
+            'community_bonus_ledger_id' => $conn->insert_id
+        ];
     }
+
+    return $processed;
 }
 
 function getBalance($conn, $member_id) {
@@ -837,12 +1306,13 @@ function getCashbackStatus($conn, $member_id) {
 
 function useDominanceAdvancementCreditForUpgrade($conn, $member_id) {
     $package_ids = getVldPackageIds();
+    ensureMemberRankHistoryTable($conn);
 
     $conn->begin_transaction();
 
     try {
         $stmt = $conn->prepare("
-            SELECT id, package_id, status
+            SELECT id, package_id, sponsor_id, status
             FROM members
             WHERE id=?
             LIMIT 1
@@ -903,6 +1373,10 @@ function useDominanceAdvancementCreditForUpgrade($conn, $member_id) {
 
         if (!$stmt->execute()) {
             throw new Exception("Unable to update advancement ledger status.");
+        }
+
+        if (!empty($member['sponsor_id'])) {
+            processTravelRankQualification($conn, (int)$member['sponsor_id']);
         }
 
         $conn->commit();

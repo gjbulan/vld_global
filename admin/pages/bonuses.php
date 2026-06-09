@@ -10,7 +10,7 @@ $type_options = $conn->query("
     WHERE type IS NOT NULL AND type<>''
     ORDER BY type ASC
 ");
-$type_values = ['chairman_bonus'];
+$type_values = ['chairman_bonus', 'community_purchase_bonus', 'personal_purchase_bonus'];
 
 while ($type_row = $type_options->fetch_assoc()) {
     if (!in_array($type_row['type'], $type_values, true)) {

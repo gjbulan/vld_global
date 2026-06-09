@@ -2,6 +2,8 @@
 $member_id = $_SESSION['member_id'];
 $package_ids = getVldPackageIds();
 
+seedDefaultProducts($conn);
+
 $stmt = $conn->prepare("
     SELECT m.*, p.name AS package_name, p.price
     FROM members m
@@ -45,6 +47,10 @@ $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM product_purchases WHERE me
 $stmt->bind_param("i", $member_id);
 $stmt->execute();
 $purchases = (int)$stmt->get_result()->fetch_assoc()['total'];
+
+$monthly_product_purchases = getMonthlyProductPurchaseCount($conn, $member_id);
+$is_community_bonus_qualified = $monthly_product_purchases >= 2;
+$community_qualified_label = $is_community_bonus_qualified ? "Yes" : "No";
 
 $stmt = $conn->prepare("
     SELECT COALESCE(SUM(amount), 0) AS total
@@ -145,6 +151,33 @@ $ref_link = "http://" . $http_host . dirname($script_path) . "/register.php?ref=
         <div class="stat-card dark">
             <span>Member Code</span>
             <h3><?php echo htmlspecialchars($member['member_code']); ?></h3>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-2">
+    <div class="col-md-6">
+        <div class="premium-card h-100">
+            <div class="card-title-row">
+                <h5>Community Qualified</h5>
+                <span>Monthly Product Rule</span>
+            </div>
+
+            <h3 class="mb-2"><?php echo htmlspecialchars($community_qualified_label); ?></h3>
+            <small class="text-muted">
+                Must personally purchase any 2 products within the current month.
+            </small>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="premium-card h-100">
+            <div class="card-title-row">
+                <h5>Products Bought This Month</h5>
+                <span>Qualification Progress</span>
+            </div>
+
+            <h3 class="mb-0"><?php echo $monthly_product_purchases; ?>/2</h3>
         </div>
     </div>
 </div>
@@ -417,6 +450,14 @@ $ref_link = "http://" . $http_host . dirname($script_path) . "/register.php?ref=
             <tr>
                 <th>Cashback Status</th>
                 <td><?php echo htmlspecialchars($cashback_status_label); ?></td>
+            </tr>
+            <tr>
+                <th>Community Qualified</th>
+                <td><?php echo htmlspecialchars($community_qualified_label); ?></td>
+            </tr>
+            <tr>
+                <th>Products Bought This Month</th>
+                <td><?php echo $monthly_product_purchases; ?>/2</td>
             </tr>
             <?php if ($is_dominance_member): ?>
                 <tr>

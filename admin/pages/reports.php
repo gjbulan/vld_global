@@ -2,6 +2,8 @@
 $date_from = trim($_GET['date_from'] ?? '');
 $date_to = trim($_GET['date_to'] ?? '');
 
+seedDefaultProducts($conn);
+
 $members_by_package = $conn->query("
     SELECT p.name, COUNT(m.id) AS total
     FROM packages p
@@ -52,7 +54,9 @@ $bonus_by_type = $bonus_stmt->get_result();
 $bonus_totals_sql = "
     SELECT
         COALESCE(SUM(CASE WHEN type='generation_bonus' THEN amount ELSE 0 END), 0) AS generation_bonus_total,
-        COALESCE(SUM(CASE WHEN type='chairman_bonus' THEN amount ELSE 0 END), 0) AS chairman_bonus_total
+        COALESCE(SUM(CASE WHEN type='chairman_bonus' THEN amount ELSE 0 END), 0) AS chairman_bonus_total,
+        COALESCE(SUM(CASE WHEN type='personal_purchase_bonus' THEN amount ELSE 0 END), 0) AS personal_purchase_bonus_total,
+        COALESCE(SUM(CASE WHEN type='community_purchase_bonus' THEN amount ELSE 0 END), 0) AS community_purchase_bonus_total
     FROM bonus_ledger
     $bonus_where
 ";
@@ -73,9 +77,14 @@ $bonus_totals_stmt->execute();
 $bonus_totals = $bonus_totals_stmt->get_result()->fetch_assoc();
 
 $purchases_by_product = $conn->query("
-    SELECT p.name, COALESCE(SUM(pp.quantity), 0) AS total_quantity
+    SELECT
+        p.name,
+        p.personal_bonus,
+        p.community_bonus,
+        COALESCE(SUM(pp.quantity), 0) AS total_quantity
     FROM products p
     LEFT JOIN product_purchases pp ON pp.product_id = p.id
+    WHERE p.id IN (1, 2)
     GROUP BY p.id
 ");
 
@@ -120,17 +129,31 @@ $advancement_summary = $conn->query("
 </div>
 
 <div class="row mt-3 g-4">
-    <div class="col-lg-6">
+    <div class="col-lg-3 col-md-6">
         <div class="admin-mini-card">
             <span>Generation Bonus Total</span>
             <h4>&#8369;<?php echo number_format((float)$bonus_totals['generation_bonus_total'], 2); ?></h4>
         </div>
     </div>
 
-    <div class="col-lg-6">
+    <div class="col-lg-3 col-md-6">
         <div class="admin-mini-card">
             <span>Chairman Bonus Total</span>
             <h4>&#8369;<?php echo number_format((float)$bonus_totals['chairman_bonus_total'], 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="admin-mini-card">
+            <span>Personal Purchase Bonus</span>
+            <h4>&#8369;<?php echo number_format((float)$bonus_totals['personal_purchase_bonus_total'], 2); ?></h4>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="admin-mini-card">
+            <span>Community Purchase Bonus</span>
+            <h4>&#8369;<?php echo number_format((float)$bonus_totals['community_purchase_bonus_total'], 2); ?></h4>
         </div>
     </div>
 </div>
@@ -195,6 +218,8 @@ $advancement_summary = $conn->query("
                         <tr>
                             <th>Product</th>
                             <th>Quantity</th>
+                            <th>Personal Bonus</th>
+                            <th>Community Bonus</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -202,6 +227,8 @@ $advancement_summary = $conn->query("
                             <tr>
                                 <td><?php echo htmlspecialchars($row['name']); ?></td>
                                 <td><?php echo (int)$row['total_quantity']; ?></td>
+                                <td>&#8369;<?php echo number_format((float)$row['personal_bonus'], 2); ?></td>
+                                <td>&#8369;<?php echo number_format((float)$row['community_bonus'], 2); ?></td>
                             </tr>
                         <?php endwhile; ?>
                     </tbody>

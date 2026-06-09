@@ -62,10 +62,19 @@ CREATE TABLE `community_bonus_ledger` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `member_id` int(11) DEFAULT NULL,
   `from_member_id` int(11) DEFAULT NULL,
+  `product_id` int(11) DEFAULT NULL,
+  `product_purchase_id` int(11) DEFAULT NULL,
+  `source_product_code_id` int(11) DEFAULT NULL,
   `level` int(11) DEFAULT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 0,
   `amount` decimal(10,2) DEFAULT NULL,
+  `bonus_ledger_id` int(11) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_community_purchase_bonus_source` (`source_product_code_id`,`member_id`,`level`),
+  KEY `idx_community_product_purchase_id` (`product_purchase_id`),
+  KEY `idx_community_product_id` (`product_id`),
+  KEY `idx_community_bonus_ledger_id` (`bonus_ledger_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------
@@ -152,6 +161,25 @@ CREATE TABLE `members` (
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------
+-- Table structure for member_rank_history
+-- ----------------------------
+DROP TABLE IF EXISTS `member_rank_history`;
+CREATE TABLE `member_rank_history` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `member_id` int(11) NOT NULL,
+  `rank_level` int(11) NOT NULL,
+  `required_volume` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `achieved_volume` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `qualified_at` datetime NOT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_member_rank_level` (`member_id`,`rank_level`),
+  KEY `idx_member_rank_member_id` (`member_id`),
+  KEY `idx_member_rank_rank_level` (`rank_level`),
+  KEY `idx_member_rank_qualified_at` (`qualified_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------
 -- Table structure for packages
 -- ----------------------------
 DROP TABLE IF EXISTS `packages`;
@@ -201,8 +229,20 @@ DROP TABLE IF EXISTS `products`;
 CREATE TABLE `products` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `personal_bonus` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `community_bonus` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `status` varchar(20) NOT NULL DEFAULT 'active',
+  `created_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_products_status` (`status`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ----------------------------
+-- Records of products
+-- ----------------------------
+INSERT INTO `products` (`id`, `name`, `personal_bonus`, `community_bonus`, `status`) VALUES
+(1, 'Nutramin', 15.00, 5.00, 'active'),
+(2, 'Healthy Coffee', 10.00, 5.00, 'active');
 
 -- ----------------------------
 -- Table structure for product_codes
@@ -218,7 +258,8 @@ CREATE TABLE `product_codes` (
   `created_at` datetime DEFAULT current_timestamp(),
   `used_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `code` (`code`)
+  UNIQUE KEY `code` (`code`),
+  KEY `idx_product_codes_product_status` (`product_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ----------------------------
@@ -230,6 +271,10 @@ CREATE TABLE `product_purchases` (
   `member_id` int(11) DEFAULT NULL,
   `product_id` int(11) DEFAULT NULL,
   `quantity` int(11) DEFAULT NULL,
+  `product_code_id` int(11) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_product_purchases_product_code` (`product_code_id`),
+  KEY `idx_product_purchases_member_created` (`member_id`,`created_at`),
+  KEY `idx_product_purchases_product_id` (`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

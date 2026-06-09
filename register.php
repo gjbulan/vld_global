@@ -245,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 ensureChairmanBonusLedgerTable($conn);
+                ensureMemberRankHistoryTable($conn);
                 $conn->begin_transaction();
 
                 $stmt = $conn->prepare("
@@ -314,6 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 processGenerationBonuses($conn, $new_member_id, $sponsor_id, $package_id);
 
                 processCashbackAndAdvancement($conn, $sponsor_id);
+                processTravelRankQualification($conn, $sponsor_id);
 
                 $conn->commit();
                 $success = "Registration successful. You may now login.";

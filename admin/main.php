@@ -1,6 +1,6 @@
 
 <?php
-include '../config.php';
+include_once __DIR__ . '/../functions.php';
 include 'includes/auth_check.php';
 include 'includes/header.php';
 include 'includes/sidebar.php';

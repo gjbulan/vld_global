@@ -20,7 +20,7 @@
         <a href="index.php?page=cashback">Cashback &amp; Advancement</a>
         <a href="index.php?page=royalty">Dominance Royalty</a>
         <a href="index.php?page=payouts">Payouts</a>
-        <a href="index.php?page=leadership_ranks">Leadership Ranks</a>
+        <a href="index.php?page=leadership_ranks">Travel Ranking</a>
         <a href="index.php?page=reports">Reports</a>
         <a href="index.php?page=settings">Settings</a>
         <a href="index.php?page=package_codes">Package Codes</a>

@@ -22,7 +22,7 @@ The system is built around these core workflows:
 - Members encode product codes, which triggers community bonuses to uplines.
 - All member wallet earnings and deductions are stored in `bonus_ledger`.
 - Members can request payouts from their available ledger balance.
-- Admin users manage members, packages, package codes, products, product codes, payouts, bonuses, reports, leadership ranking views, and settings views.
+- Admin users manage members, packages, package codes, products, product codes, payouts, bonuses, reports, travel ranking views, and settings views.
 
 ## MLM Compensation Structure
 
@@ -32,7 +32,7 @@ The application currently supports these compensation concepts:
 - Generation bonus for levels 2 through 8 above the new member's sponsor using a hybrid capped package matrix.
 - Chairman Bonus override from generation bonuses earned by qualified Dominance members' direct referrals.
 - Community bonus from product code encoding, paid up to 8 sponsor-upline levels.
-- Leadership ranking display based on direct and rank hierarchy requirements.
+- Travel incentive ranking based on lifetime Level 1 direct package sales volume.
 - Payout deduction using a 10% fee plus a flat ₱100 fee.
 
 The current implemented wallet source of truth is `bonus_ledger`. Positive rows represent earnings. Negative rows represent deductions such as payout requests.
@@ -51,7 +51,7 @@ Members use the front-facing portal:
 - View genealogy.
 - View generation and community bonus history.
 - Encode product codes.
-- View leadership ranking.
+- View travel ranking.
 - Request payouts.
 - View payout history.
 - Update profile information.
@@ -77,7 +77,7 @@ Admins use the back-office portal under `/admin`:
 - View bonus ledger records.
 - View payouts.
 - View reports.
-- View leadership rank calculations.
+- View travel ranking calculations.
 - View static settings.
 
 Admin sessions use:
@@ -286,15 +286,27 @@ Includes `config.php` and defines shared member/bonus helpers:
 
 - `generateMemberCode($conn)`
 - `getMemberByUsername($conn, $username)`
+- `getTravelRankLevels()`
+- `formatTravelRankName($rank_level)`
+- `ensureMemberRankHistoryTable($conn)`
+- `getDirectSalesVolume($conn, $member_id)`
+- `getCurrentTravelRank($conn, $member_id)`
+- `getNextTravelRank($conn, $member_id)`
+- `processTravelRankQualification($conn, $member_id)`
+- `processAllTravelRankQualifications($conn)`
 - `getPackageGenerationValue($package_id)`
 - `calculateGenerationBonusAmount($upline_package_id, $downline_package_id)`
 - `getUpline($conn, $member_id, $levels = 8)`
 - `addBonus($conn, $member_id, $amount, $type, $desc)`
+- `seedDefaultProducts($conn)`
+- `getMonthlyProductPurchaseCount($conn, $member_id, $month = null)`
+- `isCommunityBonusQualified($conn, $member_id)`
+- `processPersonalPurchaseBonus($conn, $member_id, $product_id, $quantity)`
+- `processCommunityBonus($conn, $member_id, $product_id, $quantity, $product_purchase_id = null, $source_product_code_id = null)`
 - `ensureChairmanBonusLedgerTable($conn)`
 - `isChairmanQualified($conn, $member_id)`
 - `processChairmanBonus($conn, $generation_receiver_id, $source_bonus_ledger_id, $generation_bonus_amount)`
 - `processGenerationBonuses($conn, $new_member_id, $sponsor_id, $new_member_package_id)`
-- `processCommunityBonus($conn, $member_id, $quantity)`
 - `getBalance($conn, $member_id)`
 - `getCashbackStatus($conn, $member_id)`
 - `getDominanceRoyaltySummary($conn, $member_id)`
@@ -380,6 +392,7 @@ Current physical tables in the dump:
 - `community_bonus_ledger`
 - `dominance_advancement_credits`
 - `dominance_royalty_ledger`
+- `member_rank_history`
 - `members`
 - `packages`
 - `package_codes`
@@ -447,6 +460,8 @@ Shows:
 - Wallet balance from `getBalance()`
 - Direct member count
 - Product encode count
+- Community Qualified status
+- Products bought this month
 - Member code
 - Package name
 - Referral link
@@ -539,7 +554,12 @@ Displays:
 
 ## `pages/community_bonus.php`
 
-Shows `community_bonus_ledger` rows for the current member and joins the source member username.
+Shows `community_bonus_ledger` rows for the current member and joins the source member, product, product code, and bonus ledger description.
+
+Also shows:
+
+- Community Qualified: Yes/No.
+- Products bought this month: X/2.
 
 ## `pages/encode_product.php`
 
@@ -548,30 +568,36 @@ Allows members to encode unused product codes.
 Flow:
 
 1. Member submits a product code.
-2. System checks `product_codes` where `code=?` and `status='unused'`.
-3. System inserts a row into `product_purchases`.
-4. System marks the product code as `used`.
-5. System calls `processCommunityBonus()`.
-6. Community bonuses are inserted into `community_bonus_ledger`.
-7. Matching wallet earnings are inserted into `bonus_ledger`.
+2. System starts a database transaction.
+3. System locks the matching unused product code and joins the active seeded product.
+4. System inserts a row into `product_purchases` with `product_code_id`.
+5. System marks the product code as `used`.
+6. System calls `processPersonalPurchaseBonus()`.
+7. System calls `processCommunityBonus()`.
+8. Community bonuses are inserted into `community_bonus_ledger` for qualified uplines only.
+9. Matching wallet earnings are inserted into `bonus_ledger`.
+10. System commits or rolls back the full encode flow.
 
 ## `pages/leadership_ranking.php`
 
-Displays current computed rank and rank requirements.
+Displays the member Travel Ranking page.
 
-Current implemented rank logic:
+Current ranking logic:
 
-- `L1` if member has at least 10 direct referrals.
-- `No Rank` otherwise.
+- Uses lifetime Level 1 direct package sales volume only.
+- Counts only immediate direct referrals where `members.sponsor_id` equals the current member.
+- Does not count genealogy or downline volume beyond direct referrals.
+- Uses the current direct member package price while no package/upgrade transaction table exists.
+- Calls `processTravelRankQualification()` so newly achieved ranks are stored in `member_rank_history`.
 
-Displayed future hierarchy:
+Displayed values:
 
-- L1: 10 directs
-- L2: 5 L1
-- L3: 3 L2
-- L4: 2 L3
-- L5: 2 L4
-- L6: 2 L5
+- Current Rank
+- Direct Sales Volume
+- Next Rank
+- Remaining Volume Needed
+- Progress Bar
+- Rank History
 
 ## `pages/dominance_upgrade.php`
 
@@ -708,7 +734,14 @@ Generated rows are inserted into `package_codes` with `status='unused'`.
 
 ## `admin/pages/products.php`
 
-Allows admin to add and update products.
+Displays the fixed seeded product catalog.
+
+Current active seeded products:
+
+- Nutramin: personal bonus PHP 15, community bonus PHP 5.
+- Healthy Coffee: personal bonus PHP 10, community bonus PHP 5.
+
+The old add-any-product flow is removed so product code generation uses only these seeded products.
 
 ## `admin/pages/product_codes.php`
 
@@ -722,7 +755,7 @@ PRD-{random hex}-{timestamp}-{sequence}
 
 Generated rows are inserted into `product_codes` with:
 
-- selected product ID
+- selected active seeded product ID
 - quantity per code
 - status `unused`
 
@@ -733,6 +766,7 @@ Displays encoded product purchase records by joining:
 - `product_purchases`
 - `members`
 - `products`
+- `product_codes`
 
 ## `admin/pages/bonuses.php`
 
@@ -771,12 +805,31 @@ Displays reports:
 
 ## `admin/pages/leadership_ranks.php`
 
-Displays computed leadership rank for all members.
+Displays the admin Travel Ranking report for all members.
 
-Current implemented admin rank logic:
+Current report fields:
 
-- `L1` if member has at least 10 directs.
-- `No Rank` otherwise.
+- Member Code
+- Username
+- Full Name
+- Contact No
+- Current Package
+- Direct Sales Volume
+- Current Rank
+- Next Rank
+- Qualified Date
+
+Filters:
+
+- Rank level
+- From qualified date
+- To qualified date
+- Search member
+
+CSV export:
+
+- Uses the same filters as the on-screen report.
+- Exports member identity, package, direct sales volume, current rank, next rank, and qualified date.
 
 ## `admin/pages/settings.php`
 
@@ -816,7 +869,6 @@ Current live database and `database/db.sql` contain these physical tables:
 
 These requested business tables/pages are currently implemented as calculated/static views but are not physical tables in the current schema:
 
-- `leadership_ranks`
 - `settings`
 
 ## Important Database Rule
@@ -852,7 +904,7 @@ Usage:
 - Direct referral counts
 - Genealogy
 - Package ownership
-- Leadership rank calculations
+- Travel ranking direct sales volume
 
 ## `packages`
 
@@ -883,6 +935,7 @@ Usage:
 - Direct referral bonus amount
 - Generation bonus amount
 - Total package sales calculation
+- Travel ranking direct sales volume
 
 ## `package_codes`
 
@@ -917,10 +970,15 @@ Columns:
 
 - `id` int primary key auto increment
 - `name` varchar(100)
+- `personal_bonus` decimal(10,2)
+- `community_bonus` decimal(10,2)
+- `status` varchar(20)
+- `created_at` datetime default current timestamp
 
-Current product row:
+Current active seeded product rows:
 
-- Perfume
+- ID 1: Nutramin, personal bonus PHP 15, community bonus PHP 5.
+- ID 2: Healthy Coffee, personal bonus PHP 10, community bonus PHP 5.
 
 Logical relationships:
 
@@ -932,6 +990,14 @@ Usage:
 - Product code generation
 - Product purchase history
 - Product quantity reports
+- Personal Purchase Bonus calculation
+- Community Purchase Bonus calculation
+
+Important rules:
+
+- `seedDefaultProducts($conn)` creates or refreshes the two default products.
+- Non-default products are marked inactive.
+- Product code generation only uses active seeded products.
 
 ## `product_codes`
 
@@ -957,7 +1023,7 @@ Usage:
 
 - Members encode these codes in `pages/encode_product.php`.
 - Each code carries a product and quantity.
-- Product quantity determines community bonus amount.
+- Product quantity determines personal and community purchase bonus amounts.
 - After successful encoding, code is marked `used`, `used_by_member_id` is set, and `used_at` is set to `NOW()`.
 
 ## `product_purchases`
@@ -970,19 +1036,27 @@ Columns:
 - `member_id` int
 - `product_id` int
 - `quantity` int
+- `product_code_id` int nullable
 - `created_at` datetime default current timestamp
 
 Logical relationships:
 
 - `product_purchases.member_id` references `members.id`
 - `product_purchases.product_id` references `products.id`
+- `product_purchases.product_code_id` references `product_codes.id`
 
 Usage:
 
 - Product encode history.
 - Dashboard product encode count.
+- Monthly community qualification count.
 - Admin product purchase reports.
-- Trigger point for community bonus calculations.
+- Trigger point for personal purchase bonus and community purchase bonus calculations.
+
+Important rules:
+
+- Unique key on `product_code_id` prevents duplicate purchase records for the same product code.
+- Monthly qualification counts the sum of quantities purchased in the current month for active seeded products.
 
 ## `bonus_ledger`
 
@@ -1007,6 +1081,8 @@ Current known `type` values:
 - `generation_bonus`
 - `chairman_bonus`
 - `community`
+- `personal_purchase_bonus`
+- `community_purchase_bonus`
 - `cashback_bonus`
 - `dominance_royalty_bonus`
 - `payout`
@@ -1119,27 +1195,41 @@ Important rules:
 
 ## `community_bonus_ledger`
 
-Stores detailed community bonus records.
+Stores detailed Community Purchase Bonus records.
 
 Columns:
 
 - `id` int primary key auto increment
 - `member_id` int
 - `from_member_id` int
+- `product_id` int nullable
+- `product_purchase_id` int nullable
+- `source_product_code_id` int nullable
 - `level` int
+- `quantity` int
 - `amount` decimal(10,2)
+- `bonus_ledger_id` int nullable
 - `created_at` datetime default current timestamp
 
 Logical relationships:
 
 - `community_bonus_ledger.member_id` references the earning `members.id`
 - `community_bonus_ledger.from_member_id` references the member who encoded the product code
+- `community_bonus_ledger.product_id` references `products.id`
+- `community_bonus_ledger.product_purchase_id` references `product_purchases.id`
+- `community_bonus_ledger.source_product_code_id` references `product_codes.id`
+- `community_bonus_ledger.bonus_ledger_id` references the matching `bonus_ledger.id`
 
 Usage:
 
-- Detailed audit trail for community bonuses.
+- Detailed audit trail for Community Purchase Bonuses.
 - Member community bonus page.
-- Each row should correspond to a wallet entry in `bonus_ledger` with type `community`.
+- Each row should correspond to a wallet entry in `bonus_ledger` with type `community_purchase_bonus`.
+
+Important rules:
+
+- Unique key on `source_product_code_id`, `member_id`, and `level` prevents duplicate Community Purchase Bonus rows for the same product code/upline/level.
+- Unqualified uplines are skipped without compression.
 
 ## `chairman_bonus_ledger`
 
@@ -1197,25 +1287,34 @@ Current limitation:
 - No payout status column exists yet.
 - No approval/reject workflow exists yet.
 
-## `leadership_ranks`
+## `member_rank_history`
 
-Requested business table, but not currently present in the physical database.
+Stores Travel Ranking achievement history.
 
-Current implementation:
+Columns:
 
-- Member page `pages/leadership_ranking.php` computes rank directly from referral counts.
-- Admin page `admin/pages/leadership_ranks.php` computes rank directly from referral counts.
-- Only L1 is currently computed in code.
-- L2 to L6 requirements are displayed but not fully computed.
+- `id` int primary key auto increment
+- `member_id` int not null
+- `rank_level` int not null
+- `required_volume` decimal(15,2) not null
+- `achieved_volume` decimal(15,2) not null
+- `qualified_at` datetime not null
+- `created_at` datetime default current timestamp
 
-If added in the future, this table should store rank definitions or member rank achievements without breaking existing computed views.
+Constraints and indexes:
 
-Recommended future role:
+- `UNIQUE(member_id, rank_level)` prevents duplicate achievements.
+- `idx_member_rank_member_id`
+- `idx_member_rank_rank_level`
+- `idx_member_rank_qualified_at`
 
-- Store rank code such as `L1`, `L2`, `L3`, `L4`, `L5`, `L6`.
-- Store rank name or description.
-- Store direct requirement or downline rank requirement.
-- Store member rank achievements in a separate history table if rank tracking needs auditability.
+Important rules:
+
+- One record per member per rank level only.
+- Never duplicate rank achievements.
+- Never overwrite the original `qualified_at`.
+- Travel ranks are for travel incentives and recognition only.
+- Travel ranks do not insert into `bonus_ledger`.
 
 ## `settings`
 
@@ -1277,6 +1376,7 @@ Product codes connect product inventory and quantities to member encodes.
 ```text
 product_purchases.member_id -> members.id
 product_purchases.product_id -> products.id
+product_purchases.product_code_id -> product_codes.id
 ```
 
 Product purchases are created when members encode product codes.
@@ -1294,6 +1394,10 @@ Every wallet-affecting earning and deduction must be tied to a member.
 ```text
 community_bonus_ledger.member_id -> members.id
 community_bonus_ledger.from_member_id -> members.id
+community_bonus_ledger.product_id -> products.id
+community_bonus_ledger.product_purchase_id -> product_purchases.id
+community_bonus_ledger.source_product_code_id -> product_codes.id
+community_bonus_ledger.bonus_ledger_id -> bonus_ledger.id
 ```
 
 `member_id` is the earner. `from_member_id` is the member whose product encode generated the community bonus.
@@ -1423,7 +1527,7 @@ This function:
 - Adds each sponsor to the upline array by level.
 - Walks upward until there is no sponsor or the level limit is reached.
 
-Community bonus uses up to 8 levels.
+Community Purchase Bonus uses up to 8 levels.
 
 Generation bonus uses uplines above the sponsor for levels 2 to 8.
 
@@ -1603,75 +1707,125 @@ chairman_bonus_ledger
 Important rules:
 
 - Chairman Bonus is based only on `bonus_ledger.type='generation_bonus'`.
-- It does not include direct referral, community, payout, cashback, royalty, leadership, or advancement-credit records.
+- It does not include direct referral, community, payout, cashback, royalty, travel ranking, or advancement-credit records.
 - `chairman_bonus_ledger.source_bonus_ledger_id` is unique to prevent duplicates.
 - The withdrawable earning is inserted into `bonus_ledger` with type `chairman_bonus`.
 - Registration runs Chairman Bonus processing inside the same transaction as the generation bonus insert.
 
-## Community Bonus
+## Product Personal Bonus
 
 Trigger:
 
-- Member successfully encodes an unused product code.
+- Member successfully encodes an unused active seeded product code.
 
-Recipients:
+Recipient:
 
-- Up to 8 uplines of the encoding member.
+- The encoding member.
 
 Amount:
 
 ```text
-quantity * ₱5
+products.personal_bonus * quantity
 ```
 
-Per-level rule:
+Current product personal bonuses:
 
-- Each qualified upline level receives ₱5 per encoded quantity.
-- Maximum 8 levels.
+- Nutramin: PHP 15 per quantity.
+- Healthy Coffee: PHP 10 per quantity.
+
+Ledger entry:
+
+```text
+type = personal_purchase_bonus
+description = Personal purchase bonus from {product_name} x {quantity}
+```
+
+Important rules:
+
+- Personal Purchase Bonus does not require monthly community qualification.
+- It is processed inside the product encode transaction.
+- Duplicate prevention is anchored by `product_purchases.product_code_id` and the product code status lock.
+
+## Community Purchase Bonus
+
+Trigger:
+
+- Member successfully encodes an unused active seeded product code.
+
+Recipients:
+
+- Up to 8 uplines of the encoding member.
+- Uplines must be monthly qualified.
+- Skipped uplines are not compressed.
+
+Monthly qualification:
+
+- Upline must personally purchase any 2 active seeded products within the current month.
+- Qualified examples: 2 Nutramin, 2 Healthy Coffee, or 1 Nutramin plus 1 Healthy Coffee.
+- Personal Purchase Bonus does not require this qualification.
+
+Amount:
+
+```text
+products.community_bonus * quantity
+```
+
+Current product community bonuses:
+
+- Nutramin: PHP 5 per quantity.
+- Healthy Coffee: PHP 5 per quantity.
 
 Records inserted:
 
 1. `community_bonus_ledger`
 2. `bonus_ledger`
 
-Community ledger values:
-
-- `member_id` = earning upline member ID
-- `from_member_id` = encoding member ID
-- `level` = upline level
-- `amount` = quantity times 5
-
 Bonus ledger entry:
 
 ```text
-type = community
-description = Level {level} bonus from member {member_id}
+type = community_purchase_bonus
+description = Community purchase bonus Level {level} from {username} ({product_name} x {quantity})
 ```
 
-## Leadership Ranking
+Important rules:
 
-Current implementation is computed from member downline data and does not use a dedicated database table.
+- `getMonthlyProductPurchaseCount()` sums current-month quantities for active seeded products.
+- `isCommunityBonusQualified()` returns true when that monthly quantity is at least 2.
+- Duplicate prevention uses product code status locking plus unique source fields in `product_purchases` and `community_bonus_ledger`.
 
-Current active computed logic:
+## Travel Incentive Ranking
 
-- L1 if member has at least 10 direct referrals.
-- No Rank otherwise.
+Current implementation is based only on lifetime Level 1 direct package sales volume.
 
-Displayed rank rules:
+Volume source:
 
-- L1: 10 Directs
-- L2: 5 L1
-- L3: 3 L2
-- L4: 2 L3
-- L5: 2 L4
-- L6: 2 L5
+- Sum package sales generated by immediate direct referrals.
+- Count only members where `members.sponsor_id` equals the ranked member ID.
+- Do not count genealogy or downline volume beyond direct referrals.
+- Use the current direct member package price while no package/upgrade transaction table exists.
+- Keep the volume-source query isolated in `getDirectSalesVolume()` so package purchase or upgrade transactions can be added later.
 
-Future implementation should decide whether ranks are:
+Rank levels:
 
-- Computed live from tree data.
-- Stored as member achievement records.
-- Recalculated by an admin action.
-- Calculated in a scheduled process.
+- Level 1: ₱500,000
+- Level 2: ₱3,000,000
+- Level 3: ₱15,000,000
+- Level 4: ₱60,000,000
+- Level 5: ₱180,000,000
+- Level 6: ₱540,000,000
+
+Achievement storage:
+
+- `processTravelRankQualification()` inserts missing records into `member_rank_history`.
+- `processAllTravelRankQualifications()` recalculates all members and backfills missing records.
+- Duplicate prevention uses `UNIQUE(member_id, rank_level)`.
+- Original `qualified_at` values are never overwritten.
+
+Important rules:
+
+- Travel ranks are for travel incentives and recognition only.
+- No cash bonus payout is created.
+- No rank reward is inserted into `bonus_ledger`.
 
 ## Payout Deductions
 
@@ -1741,11 +1895,22 @@ description = Payout request
 - Wallet earning uses `bonus_ledger.type='chairman_bonus'`.
 - Duplicate prevention uses `chairman_bonus_ledger.source_bonus_ledger_id`.
 
-## Community Bonus
+## Product Personal Bonus
 
-- 8 levels
-- ₱5 per product quantity per level
-- Triggered by product code encoding
+- Nutramin personal bonus: PHP 15 per quantity.
+- Healthy Coffee personal bonus: PHP 10 per quantity.
+- Triggered when a member encodes their own product code.
+- Does not require monthly community qualification.
+- Wallet earning uses `bonus_ledger.type='personal_purchase_bonus'`.
+
+## Community Purchase Bonus
+
+- Paid up to 8 uplines.
+- Nutramin community bonus: PHP 5 per quantity.
+- Healthy Coffee community bonus: PHP 5 per quantity.
+- Upline must personally purchase any 2 active seeded products in the current month.
+- Skipped uplines are not compressed.
+- Wallet earning uses `bonus_ledger.type='community_purchase_bonus'`.
 
 ## Dominance Royalty Bonus
 
@@ -1758,15 +1923,16 @@ description = Payout request
 - Pending royalty uses `available_at > NOW()`.
 - No cron job, admin release, or manual processing is used.
 
-## Leadership Ranking
+## Travel Incentive Ranking
 
-- L1: 10 directs
-- L2: 5 L1
-- L3: 3 L2
-- L4: 2 L3
-- L5: 2 L4
-- L6: 2 L5
-- Current code only computes L1
+- Based only on lifetime Level 1 direct package sales volume.
+- Level 1: ₱500,000
+- Level 2: ₱3,000,000
+- Level 3: ₱15,000,000
+- Level 4: ₱60,000,000
+- Level 5: ₱180,000,000
+- Level 6: ₱540,000,000
+- Travel ranks are recognition only and do not create `bonus_ledger` payouts.
 
 ## Payout
 
@@ -1831,7 +1997,7 @@ Critical transaction candidates:
 - Community bonus ledger insert
 - Bonus ledger insert
 - Payout request
-- Future leadership bonus distribution
+- Travel rank qualification history insert
 
 Recommended pattern:
 
@@ -2015,9 +2181,7 @@ Important note:
 
 ## Current Known Gaps To Respect
 
-- `leadership_ranks` table does not currently exist.
 - `settings` table does not currently exist.
-- Leadership rank logic only computes L1.
 - Payouts have no status/approval workflow.
 - Some multi-step write flows do not yet use transactions.
 - Duplicate bonus prevention is not fully enforced by unique database constraints.
